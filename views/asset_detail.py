@@ -64,7 +64,16 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     aktuel_dkk_value = qty_total * (live or 0) * rate_now if live else 0.0
     unrealized_dkk = aktuel_dkk_value - cost_dkk
     unrealized_pct = (unrealized_dkk / cost_dkk * 100) if cost_dkk else 0
-    gak_valuta = (cost_dkk / qty_total) / rate_now if (qty_total > 0 and rate_now > 0) else 0
+    # Brug Plutos egne GAK fra positions-arket hvis tilgængeligt (samme kilde som aktieoversigten)
+    gak_valuta = 0.0
+    if (positions_df is not None
+            and "Ticker" in positions_df.columns
+            and "Average entry price (asset currency)" in positions_df.columns):
+        pos_row = positions_df[positions_df["Ticker"] == ticker]
+        if not pos_row.empty:
+            gak_valuta = _safe_float(pos_row.iloc[0]["Average entry price (asset currency)"]) or 0.0
+    if not gak_valuta and qty_total > 0 and rate_now > 0:
+        gak_valuta = (cost_dkk / qty_total) / rate_now
     delta_dkk = (live - prev_close) if (live is not None and prev_close is not None) else 0
     delta_pct = (delta_dkk / prev_close * 100) if prev_close else 0
 
