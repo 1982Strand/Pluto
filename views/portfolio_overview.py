@@ -277,6 +277,7 @@ def render_portfolio_overview(
         )
     ytd_start = pd.Timestamp(year=pd.Timestamp.now().year, month=1, day=1)
 
+    orders_df = orders_df.copy()
     orders_df["Qty_Adj"] = np.where(orders_df["Side"] == "BUY", orders_df["Quantity"], -orders_df["Quantity"])
     orders_df["DKK_Adj"] = np.where(orders_df["Side"] == "BUY", orders_df["Notional, DKK"], -orders_df["Notional, DKK"])
 
@@ -733,7 +734,7 @@ def render_portfolio_overview(
                     sector_rows = _build_rows(per_sector, total_v)
                     sec_color_map = _make_color_map(sector_rows, px.colors.qualitative.Set2)
 
-                    col_chart, col_list = st.columns([1, 2])
+                    sec_col_chart, sec_col_list = st.columns([1, 2])
                     with col_chart:
                         chart_type = st.radio(
                             "Visning",
@@ -786,7 +787,7 @@ def render_portfolio_overview(
                         )
                         st.plotly_chart(fig_chart, use_container_width=True)
 
-                    with col_list:
+                    with sec_col_list:
                         sec_html = ""
                         for r in sector_rows:
                             c = sec_color_map[r["name"]]
