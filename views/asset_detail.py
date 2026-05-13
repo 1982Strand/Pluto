@@ -767,16 +767,12 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         d_str = r["Date"].strftime("%d. %b %Y %H:%M") if pd.notnull(r["Date"]) else "—"
         ac = r.get("Account currency", "")
         qty = r["Quantity"] if r["Quantity"] else 0
-        fx_rate = _safe_float(r.get("FX Rate"))  # DKK pr. asset_ccy-enhed (fx 6,85 DKK/USD)
         notional_dkk = _safe_float(r.get("Notional, DKK")) or 0
         notional_ac  = _safe_float(r.get("Notional (account currency)")) or 0
+        notional_asset_ccy = _safe_float(r.get("Notional (asset currency)")) or 0
 
-        # Pris i aktivets valuta
-        if ac == asset_ccy or not fx_rate:
-            px_local = notional_ac / qty if qty else 0
-        else:
-            notional_asset = notional_dkk / fx_rate
-            px_local = notional_asset / qty if qty else 0
+        # Pris i aktivets valuta: direkte fra XLSX-kolonnen "Notional (asset currency)"
+        px_local = notional_asset_ccy / qty if qty else 0
 
         # Fra konto: beløb i kontovaluta
         ac_sym = _ccy_sym_map.get(ac, ac)
