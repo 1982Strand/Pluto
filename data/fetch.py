@@ -242,3 +242,84 @@ def fetch_ticker_meta(tickers_tuple):
             "region": region,
         }
     return out
+    
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_ticker_quote_info(ticker):
+    """yfinance Ticker.info-snapshot — kun de felter detalje-siden bruger.
+
+    Cached i 1 time. Returnerer dict med nøgler:
+    volume, average_volume, day_low, day_high, open, fifty_two_week_low,
+    fifty_two_week_high, market_cap, trailing_pe, trailing_eps, beta,
+    exchange, isin, long_name, website.
+    """
+    out = {
+        "volume": None, "average_volume": None,
+        "day_low": None, "day_high": None, "open": None,
+        "fifty_two_week_low": None, "fifty_two_week_high": None,
+        "market_cap": None, "trailing_pe": None, "trailing_eps": None,
+        "beta": None, "exchange": None, "isin": None,
+        "long_name": None, "website": None,
+    }
+    try:
+        info = yf.Ticker(ticker).info or {}
+    except Exception:
+        return out
+    out["volume"] = _safe_float(info.get("volume") or info.get("regularMarketVolume"))
+    out["average_volume"] = _safe_float(
+        info.get("averageVolume") or info.get("averageVolume10days")
+    )
+    out["day_low"] = _safe_float(info.get("dayLow") or info.get("regularMarketDayLow"))
+    out["day_high"] = _safe_float(info.get("dayHigh") or info.get("regularMarketDayHigh"))
+    out["open"] = _safe_float(info.get("open") or info.get("regularMarketOpen"))
+    out["fifty_two_week_low"] = _safe_float(info.get("fiftyTwoWeekLow"))
+    out["fifty_two_week_high"] = _safe_float(info.get("fiftyTwoWeekHigh"))
+    out["market_cap"] = _safe_float(info.get("marketCap"))
+    out["trailing_pe"] = _safe_float(info.get("trailingPE"))
+    out["trailing_eps"] = _safe_float(info.get("trailingEps"))
+    out["beta"] = _safe_float(info.get("beta"))
+    out["exchange"] = info.get("fullExchangeName") or info.get("exchange") or None
+    out["isin"] = info.get("isin") or None
+    out["long_name"] = info.get("longName") or info.get("shortName") or None
+    out["website"] = info.get("website") or None
+    return out
+    
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_intraday_sparklines(tickers_tuple):
+    """For hver ticker: liste af 5-min closes for seneste regular session
+    (09:30 - 16:00 ET) — afsluttet eller igangværende. Pre/after-hours
+    filtreres væk så sparklinen matcher 'Sidste luk' som er regular-
+    session-close. I pre-market falder target tilbage til gårsdagens
+    session, da dagens dato endnu ikke har regular-hours-bars."""
+    if not tickers_tuple:
+        return {}
+    out = {t: [] for t in tickers_tuple}
+    try:
+        prices_i = fetch_price_history_intraday(tickers_tuple, "5d", "5m")
+    except Exception:
+        return out
+    if prices_i is None or prices_i.empty:
+        return out
+    idx = pd.DatetimeIndex(prices_i.index)
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    idx_et = idx.tz_convert("America/New_York")
+    et_dates = idx_et.normalize()
+    # Find seneste ET-dato der HAR regular-hours-bars. I pre-market vil
+    # dagens dato ikke have nogen regular-bars endnu, så target falder
+    # naturligt tilbage til seneste afsluttede handelsdag (typisk gårsdag,
+    # eller fredag hvis vi er mandag-morgen).
+    et_minutes = idx_et.hour * 60 + idx_et.minute
+    regular_mask = (et_minutes >= 9 * 60 + 30) & (et_minutes < 16 * 60)
+    weekday_mask = et_dates.weekday < 5
+    candidate_dates = et_dates[regular_mask & weekday_mask]
+    if len(candidate_dates) == 0:
+        return out
+    target = candidate_dates.max()
+    mask = (et_dates == target) & regular_mask
+    sliced = prices_i.loc[mask]
+    for t in tickers_tuple:
+        if t in sliced.columns:
+            series = sliced[t].dropna()
+            if len(series) >= 2:
+                out[t] = [float(v) for v in series.tolist()]
+    return out

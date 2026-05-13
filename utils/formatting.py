@@ -75,3 +75,13 @@ def _flatten_html(html):
     """Strip leading whitespace pr. linje, så Streamlits markdown-parser ikke
     fortolker indrykket HTML som <pre>-kodeblokke."""
     return "".join(line.strip() for line in html.splitlines())
+    
+def color_change_str(val):
+    """Farv strenge der starter med + (grøn) eller - (rød)."""
+    if not isinstance(val, str):
+        return ""
+    if val.startswith("+"):
+        return "color: #2e7d32; font-weight: 600"
+    if val.startswith("-"):
+        return "color: #d32f2f; font-weight: 600"
+    return ""
