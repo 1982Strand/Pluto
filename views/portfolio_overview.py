@@ -14,7 +14,7 @@ from utils.formatting import (
     _safe_float, _da_num, format_currency, format_quantity,
     _flatten_html, color_change_str,
 )
-from data.fetch import (
+from data.cached import (
     fetch_live_quotes, fetch_live_fx_rates,
     fetch_ticker_meta, fetch_intraday_sparklines,
 )

@@ -1,9 +1,7 @@
 from utils.formatting import _safe_float
 import pandas as pd
-import streamlit as st
 import yfinance as yf
 
-@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_price_history(tickers_tuple, start_str, end_str):
     """Henter daglige slutkurser for tickere + USDDKK + EURDKK. Cached i 30 min."""
     symbols = list(tickers_tuple) + ["USDDKK=X", "EURDKK=X"]
@@ -19,7 +17,6 @@ def fetch_price_history(tickers_tuple, start_str, end_str):
     return data
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def fetch_price_history_intraday(tickers_tuple, period, interval):
     """Henter intraday Close-priser for tickere + USDDKK + EURDKK."""
     symbols = list(tickers_tuple) + ["USDDKK=X", "EURDKK=X"]
@@ -47,7 +44,6 @@ def fetch_price_history_intraday(tickers_tuple, period, interval):
     return data
     
        
-@st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_quotes(tickers_tuple):
     """
     Henter aktuel pris + de seneste regular-session slutkurser via history.
@@ -140,7 +136,6 @@ def fetch_live_quotes(tickers_tuple):
     return quotes
     
 
-@st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_fx_rates():
     """
     Henter live USDDKK og EURDKK via 1-min minute-bars (prepost=True så vi får
@@ -200,7 +195,6 @@ _REGION_MAP = {
 }
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
 def fetch_ticker_meta(tickers_tuple):
     """Returnerer dict[ticker -> {"sector", "asset_class", "country", "region"}]. Cached 24t.
 
@@ -243,7 +237,6 @@ def fetch_ticker_meta(tickers_tuple):
         }
     return out
     
-@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_ticker_quote_info(ticker):
     """yfinance Ticker.info-snapshot — kun de felter detalje-siden bruger.
 
@@ -283,7 +276,6 @@ def fetch_ticker_quote_info(ticker):
     out["website"] = info.get("website") or None
     return out
     
-@st.cache_data(ttl=300, show_spinner=False)
 def fetch_intraday_sparklines(tickers_tuple):
     """For hver ticker: liste af 5-min closes for seneste regular session
     (09:30 - 16:00 ET) — afsluttet eller igangværende. Pre/after-hours

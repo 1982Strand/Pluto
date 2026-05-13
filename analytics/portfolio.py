@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from config import DEFAULT_DEPOSIT_TIME
 from data.deposits import load_deposit_times, _deposit_key, _time_to_frac
-from data.fetch import fetch_price_history, fetch_price_history_intraday
+from data.cached import fetch_price_history, fetch_price_history_intraday
 
 def cashflow_timeline(tx_df, date_range):
     """Akkumuleret saldo for en transaktionsliste, reindekseret til daglig frekvens."""

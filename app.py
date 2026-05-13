@@ -19,7 +19,7 @@ from styles import inject_styles
 inject_styles()
 
 # -------------------- IMPORTS --------------------
-from data.fetch import fetch_live_quotes, fetch_live_fx_rates
+from data.cached import fetch_live_quotes, fetch_live_fx_rates
 from analytics.portfolio import compute_portfolio_value_series, compute_deposits_dkk
 from views.asset_detail import render_asset_detail
 from views.portfolio_overview import render_portfolio_overview

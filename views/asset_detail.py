@@ -11,7 +11,7 @@ from utils.formatting import (
     format_quantity, _flatten_html, _CCY_SYMBOLS
 )
 from utils.svg_charts import _make_sparkline_data_url, _make_volume_bar_html, _make_range_bar_html
-from data.fetch import fetch_live_quotes, fetch_live_fx_rates, fetch_ticker_quote_info, fetch_ticker_meta
+from data.cached import fetch_live_quotes, fetch_live_fx_rates, fetch_ticker_quote_info, fetch_ticker_meta
 from data.market_status import get_market_status_for_currency
 from analytics.portfolio import slice_period, cumulative_return_series
 
