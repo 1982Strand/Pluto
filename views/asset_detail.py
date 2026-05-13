@@ -762,24 +762,58 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     # =====================================================================
     st.subheader("Handelshistorik")
     trades_rows = []
+    _ccy_sym_map = {"USD": "$", "EUR": "€", "DKK": "kr."}
     for _, r in sub.sort_values("Date", ascending=False).iterrows():
         d_str = r["Date"].strftime("%d. %b %Y %H:%M") if pd.notnull(r["Date"]) else "—"
-        px_local = r["Notional (account currency)"] / r["Quantity"] if r["Quantity"] else 0
+        ac = r.get("Account currency", "")
+        qty = r["Quantity"] if r["Quantity"] else 0
+        fx_rate = _safe_float(r.get("FX Rate"))  # DKK pr. asset_ccy-enhed (fx 6,85 DKK/USD)
+        notional_dkk = _safe_float(r.get("Notional, DKK")) or 0
+        notional_ac  = _safe_float(r.get("Notional (account currency)")) or 0
+
+        # Pris i aktivets valuta
+        if ac == asset_ccy or not fx_rate:
+            px_local = notional_ac / qty if qty else 0
+        else:
+            notional_asset = notional_dkk / fx_rate
+            px_local = notional_asset / qty if qty else 0
+
+        # Fra konto: beløb i kontovaluta
+        ac_sym = _ccy_sym_map.get(ac, ac)
+        fra_konto_str = (
+            f"{_da_num(notional_ac)} {ac_sym}" if ac == "DKK"
+            else f"{ac_sym} {_da_num(notional_ac)}"
+        )
+
+        # Vekselgebyr (kun ved krydsvaluta-handler)
+        veksel_str = (
+            f"{_da_num(notional_dkk * PLUTO_FX_SPREAD_RATE)} kr."
+            if ac != asset_ccy else "—"
+        )
+
+        # Kurtage i DKK
         comm = _safe_float(r.get("Commission (account currency)")) or 0
-        ac = r.get("Account currency")
         rate_t = usd_dkk_now if ac == "USD" else (eur_dkk_now if ac == "EUR" else 1.0)
         comm_dkk = comm * rate_t
+
         trades_rows.append({
             "Dato": d_str,
             "Side": r["Side"],
-            "Antal": format_quantity(r["Quantity"]),
+            "Antal": format_quantity(qty),
             f"Pris ({asset_ccy})": f"{ccy_sym} {_da_num(px_local)}",
-            "Notional (DKK)": _da_num(r["Notional, DKK"]),
-            "Kurtage (DKK)": _da_num(comm_dkk),
+            "Fra konto": fra_konto_str,
+            "Beløb (DKK)": f"{_da_num(notional_dkk)} kr.",
+            "Vekselgebyr (DKK)": veksel_str,
+            "Kurtage (DKK)": f"{_da_num(comm_dkk)} kr." if comm_dkk else "—",
         })
     if trades_rows:
         trades_df_disp = pd.DataFrame(trades_rows)
         st.dataframe(trades_df_disp, use_container_width=True, hide_index=True)
+        st.caption(
+            f"*Pris ({asset_ccy})* er handelsprisen i aktivets valuta. "
+            "Ved køb fra DKK-konto bruges den historiske FX-kurs fra XLSX-filen. "
+            f"*Vekselgebyr* = Beløb (DKK) × {PLUTO_FX_SPREAD_RATE*100:.2f}% (Plutos prismodel)."
+        )
 
     st.write("---")
 

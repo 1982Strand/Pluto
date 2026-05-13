@@ -735,7 +735,7 @@ def render_portfolio_overview(
                     sec_color_map = _make_color_map(sector_rows, px.colors.qualitative.Set2)
 
                     sec_col_chart, sec_col_list = st.columns([1, 2])
-                    with col_chart:
+                    with sec_col_chart:
                         chart_type = st.radio(
                             "Visning",
                             ["Sektor", "Sektor + positioner"],
