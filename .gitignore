@@ -1,0 +1,7 @@
+*.xlsx
+__pycache__/
+*.pyc
+billeder/
+old/
+.claude/
+*.bat
