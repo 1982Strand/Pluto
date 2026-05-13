@@ -26,32 +26,7 @@ inject_styles()
 
 # -------------------- HJÆLPEFUNKTIONER --------------------
 from utils.formatting import _safe_float, _da_num, format_currency, format_big_number, format_quantity, _flatten_html
-
-def _deposit_key(date_str, amount, currency="DKK"):
-    """Generér unik nøgle pr. deposit (dato + beløb + valuta)."""
-    return f"{date_str}T{amount}_{currency}"
-
-
-def load_deposit_times():
-    """Læs deposit_times.json. Returnér tom dict hvis fil mangler/korrupt."""
-    if not os.path.exists(DEPOSIT_TIMES_FILE):
-        return {}
-    try:
-        with open(DEPOSIT_TIMES_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def save_deposit_times(times_dict):
-    """Skriv deposit_times.json. Returnér True ved succes."""
-    try:
-        with open(DEPOSIT_TIMES_FILE, "w", encoding="utf-8") as f:
-            json.dump(times_dict, f, indent=2, ensure_ascii=False)
-        return True
-    except OSError:
-        return False
+from data.deposits import load_deposit_times, save_deposit_times, _deposit_key, _time_to_frac, _time_to_frac
 
 
 def _time_to_frac(hhmm):
