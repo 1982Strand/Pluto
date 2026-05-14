@@ -101,8 +101,9 @@ def render_wallet(cash_df: pd.DataFrame, dkk_tx: pd.DataFrame,
 
         if _times_changed:
             if save_deposit_times(_stored_times):
-                st.cache_data.clear()
-                st.rerun()
+               # Undgå global cache-clear.
+               # Deposit-times påvirker kun cashflow-fracs/TWR-beregning, ikke live quotes/FX/meta.
+               st.rerun()
             else:
                 st.warning(f"Kunne ikke gemme tidspunkter til {DEPOSIT_TIMES_FILE}.")
 

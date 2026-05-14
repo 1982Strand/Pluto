@@ -27,6 +27,46 @@ from views.wallet import render_wallet
 from analytics.portfolio import compute_ticker_lifecycle
 from views.history import render_history
 
+# ==========================================================
+# P1: Cached XLSX loader (hurtigere reruns)
+# ==========================================================
+@st.cache_data(show_spinner=False)
+def _load_pluto_xlsx_cached(xlsx_path: str, file_mtime: float):
+    """
+    Læs alle nødvendige Pluto-sheets fra XLSX.
+    Cache-key inkluderer file_mtime, så cache invalideres automatisk ved ny upload.
+    """
+    orders_df = pd.read_excel(xlsx_path, sheet_name="Orders", engine="openpyxl")
+    cash_df = pd.read_excel(xlsx_path, sheet_name="Cash overview", engine="openpyxl")
+    dkk_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - DKK account", engine="openpyxl")
+
+    try:
+        usd_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - USD account", engine="openpyxl")
+    except Exception:
+        usd_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
+
+    try:
+        eur_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - EUR account", engine="openpyxl")
+    except Exception:
+        eur_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
+
+    try:
+        positions_df = pd.read_excel(xlsx_path, sheet_name="Positions, Ultimo", engine="openpyxl")
+        positions_df.columns = positions_df.columns.str.strip()
+    except Exception:
+        positions_df = pd.DataFrame(columns=["Ticker", "Average entry price (asset currency)"])
+
+    return orders_df, cash_df, dkk_tx, usd_tx, eur_tx, positions_df
+
+
+def load_pluto_xlsx(xlsx_path: str):
+    """
+    Wrapper der giver stabil cache-key baseret på filens mtime.
+    """
+    mtime = os.path.getmtime(xlsx_path)
+    return _load_pluto_xlsx_cached(xlsx_path, mtime)
+
+
 # -------------------- SIDEBAR --------------------
 with st.sidebar:
     st.header("Kontrolpanel")
@@ -45,23 +85,7 @@ if not os.path.exists(PERSISTENT_FILE):
     st.stop()
 
 try:
-    # --- Indlæs data fra XLSX ---
-    orders_df = pd.read_excel(PERSISTENT_FILE, sheet_name="Orders")
-    cash_df = pd.read_excel(PERSISTENT_FILE, sheet_name="Cash overview")
-    dkk_tx = pd.read_excel(PERSISTENT_FILE, sheet_name="Transactions - DKK account")
-    try:
-        usd_tx = pd.read_excel(PERSISTENT_FILE, sheet_name="Transactions - USD account")
-    except Exception:
-        usd_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
-    try:
-        eur_tx = pd.read_excel(PERSISTENT_FILE, sheet_name="Transactions - EUR account")
-    except Exception:
-        eur_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
-    try:
-        positions_df = pd.read_excel(PERSISTENT_FILE, sheet_name="Positions, Ultimo")
-        positions_df.columns = positions_df.columns.str.strip()
-    except Exception:
-        positions_df = pd.DataFrame(columns=["Ticker", "Average entry price (asset currency)"])
+    orders_df, cash_df, dkk_tx, usd_tx, eur_tx, positions_df = load_pluto_xlsx(PERSISTENT_FILE)
 
     for df in (orders_df, cash_df, dkk_tx, usd_tx, eur_tx):
         df.columns = df.columns.str.strip()

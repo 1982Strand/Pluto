@@ -315,3 +315,100 @@ def fetch_intraday_sparklines(tickers_tuple):
             if len(series) >= 2:
                 out[t] = [float(v) for v in series.tolist()]
     return out
+    
+# ==========================================================
+# Asset detail helpers (REN Python, ingen Streamlit)
+# ==========================================================
+import pandas as pd
+import yfinance as yf
+
+def fetch_asset_history(ticker: str, period_key: str, include_extended: bool = False):
+    """
+    Hent pris- og volumen-historik for én ticker til asset_detail.
+    Returnerer (prices_series, volume_series) med datetime-indeks (yfinance default tz).
+    """
+    try:
+        tk = yf.Ticker(ticker)
+
+        if period_key == "1D":
+            hist = tk.history(period="2d", interval="1m", prepost=True, auto_adjust=False)
+        elif period_key == "1U":
+            hist = tk.history(period="5d", interval="5m", prepost=True, auto_adjust=False)
+        elif period_key == "1M":
+            hist = tk.history(period="1mo", interval="1h", prepost=include_extended, auto_adjust=False)
+        elif period_key == "3M":
+            hist = tk.history(period="3mo", interval="1d", prepost=False, auto_adjust=False)
+        elif period_key == "6M":
+            hist = tk.history(period="6mo", interval="1d", prepost=False, auto_adjust=False)
+        elif period_key == "YTD":
+            hist = tk.history(period="ytd", interval="1d", prepost=False, auto_adjust=False)
+        elif period_key == "1Å":
+            hist = tk.history(period="1y", interval="1d", prepost=False, auto_adjust=False)
+        elif period_key == "5Å":
+            hist = tk.history(period="5y", interval="1wk", prepost=False, auto_adjust=False)
+        else:  # "Maks"
+            hist = tk.history(period="max", interval="1mo", prepost=False, auto_adjust=False)
+    except Exception:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+
+    if hist is None or hist.empty:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+
+    prices = hist["Close"].dropna() if "Close" in hist.columns else pd.Series(dtype=float)
+    volumes = hist["Volume"].dropna() if "Volume" in hist.columns else pd.Series(dtype=float)
+    return prices, volumes
+
+
+def fetch_period_reference_price(ticker: str, period_key: str):
+    """
+    Yahoo-stil referencepris: close STRIKT før periode-start.
+    Returnerer None for "1D" og "Maks" (caller bruger andre referencepunkter).
+    """
+    if period_key in ("1D", "Maks"):
+        return None
+
+    fetch_period_map = {
+        "1U": "1mo", "1M": "3mo", "3M": "6mo", "6M": "1y",
+        "YTD": "2y", "1Å": "2y", "5Å": "6y",
+    }
+    fetch_period = fetch_period_map.get(period_key, "1mo")
+
+    try:
+        tk = yf.Ticker(ticker)
+        hist = tk.history(period=fetch_period, interval="1d", prepost=False, auto_adjust=False)
+        if hist.empty or "Close" not in hist.columns:
+            return None
+        closes = hist["Close"].dropna()
+        if closes.empty:
+            return None
+    except Exception:
+        return None
+
+    today = pd.Timestamp.now().normalize()
+    if period_key == "1U":
+        target = today - pd.Timedelta(days=7)
+    elif period_key == "1M":
+        target = today - pd.DateOffset(months=1)
+    elif period_key == "3M":
+        target = today - pd.DateOffset(months=3)
+    elif period_key == "6M":
+        target = today - pd.DateOffset(months=6)
+    elif period_key == "YTD":
+        target = pd.Timestamp(year=today.year, month=1, day=1)
+    elif period_key == "1Å":
+        target = today - pd.DateOffset(years=1)
+    elif period_key == "5Å":
+        target = today - pd.DateOffset(years=5)
+    else:
+        return None
+
+    target = pd.Timestamp(target).normalize()
+
+    idx = pd.DatetimeIndex(closes.index)
+    idx_naive = idx.tz_localize(None).normalize() if idx.tz is not None else idx.normalize()
+
+    mask = idx_naive < target
+    if mask.any():
+        return float(closes[mask].iloc[-1])
+
+    return float(closes.iloc[0])

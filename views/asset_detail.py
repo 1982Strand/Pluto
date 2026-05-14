@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import yfinance as yf
+from data.cached import fetch_asset_history, fetch_period_reference_price
 from datetime import timedelta
 
 from config import PORTFOLIO_START, PLUTO_FX_SPREAD_RATE
@@ -232,8 +232,8 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     det_y_mode = "$"  # Y-aksen er altid pris i aktivets valuta nu
 
     with st.spinner("Henter prishistorik..."):
-        det_prices, det_volumes = _fetch_asset_history(
-            ticker, det_period, asset_ccy, include_extended=include_extended
+        det_prices, det_volumes = fetch_asset_history(
+            ticker, det_period, include_extended
         )
 
     # Filtrér intraday-data til de relevante markedstimer (på hverdage). For
@@ -284,7 +284,7 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         elif det_period == "Maks":
             ref_price = None  # Brug første pris i grafen
         else:
-            ref_price = _fetch_period_reference_price(ticker, det_period)
+            ref_price = fetch_period_reference_price(ticker, det_period)
 
         if ref_price is not None and ref_price > 0:
             period_start_price = float(ref_price)
@@ -848,115 +848,6 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             st.markdown("  \n".join(meta_lines))
             
 # -------------------- AKTIV-DETALJE-SIDE --------------------
-def _fetch_asset_history(ticker, period_key, asset_ccy, include_extended=False):
-    """Hent pris- og volumen-historik for én ticker til detalje-grafens periode.
-
-    Returnerer (prices_series, volume_series) med datetime-indeks i UTC.
-    Bruger intraday-interval for 1D/1U/1M, daglig ellers. include_extended
-    styrer om pre/post-market bars hentes (kun relevant for intraday — for
-    1M ændrer det yfinance-fetchet, for 1D/1U er prepost altid True og
-    filtreres efterfølgende)."""
-    try:
-        tk = yf.Ticker(ticker)
-        if period_key == "1D":
-            hist = tk.history(period="2d", interval="1m", prepost=True, auto_adjust=False)
-        elif period_key == "1U":
-            hist = tk.history(period="5d", interval="5m", prepost=True, auto_adjust=False)
-        elif period_key == "1M":
-            hist = tk.history(
-                period="1mo", interval="1h",
-                prepost=include_extended, auto_adjust=False,
-            )
-        elif period_key == "3M":
-            hist = tk.history(period="3mo", interval="1d", prepost=False, auto_adjust=False)
-        elif period_key == "6M":
-            hist = tk.history(period="6mo", interval="1d", prepost=False, auto_adjust=False)
-        elif period_key == "YTD":
-            hist = tk.history(period="ytd", interval="1d", prepost=False, auto_adjust=False)
-        elif period_key == "1Å":
-            hist = tk.history(period="1y", interval="1d", prepost=False, auto_adjust=False)
-        elif period_key == "5Å":
-            hist = tk.history(period="5y", interval="1wk", prepost=False, auto_adjust=False)
-        else:  # Maks
-            hist = tk.history(period="max", interval="1mo", prepost=False, auto_adjust=False)
-    except Exception:
-        return pd.Series(dtype=float), pd.Series(dtype=float)
-    if hist is None or hist.empty:
-        return pd.Series(dtype=float), pd.Series(dtype=float)
-    prices = hist["Close"].dropna() if "Close" in hist.columns else pd.Series(dtype=float)
-    volumes = hist["Volume"].dropna() if "Volume" in hist.columns else pd.Series(dtype=float)
-    return prices, volumes
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _fetch_period_reference_price(ticker, period_key):
-    """Yahoo-stil referencepris: close FØR periode-start.
-
-    Bruges til at beregne periode-ændring sådan at den er uafhængig af om
-    extended hours er på/af i grafen — reference er altid en regular session
-    close fra dagen før perioden startede.
-
-    Returnerer None for 1D (caller bruger prev_close) og Maks (caller bruger
-    første pris i grafen). For øvrige perioder returneres close ved eller
-    lige før target-datoen.
-    """
-    if period_key in ("1D", "Maks"):
-        return None
-
-    fetch_period_map = {
-        "1U": "1mo", "1M": "3mo", "3M": "6mo", "6M": "1y",
-        "YTD": "2y", "1Å": "2y", "5Å": "6y",
-    }
-    fetch_period = fetch_period_map.get(period_key, "1mo")
-
-    try:
-        tk = yf.Ticker(ticker)
-        hist = tk.history(
-            period=fetch_period, interval="1d",
-            prepost=False, auto_adjust=False,
-        )
-        if hist.empty or "Close" not in hist.columns:
-            return None
-    except Exception:
-        return None
-    closes = hist["Close"].dropna()
-    if closes.empty:
-        return None
-
-    today = pd.Timestamp.now().normalize()
-    if period_key == "1U":
-        target = today - pd.Timedelta(days=7)
-    elif period_key == "1M":
-        target = today - pd.DateOffset(months=1)
-    elif period_key == "3M":
-        target = today - pd.DateOffset(months=3)
-    elif period_key == "6M":
-        target = today - pd.DateOffset(months=6)
-    elif period_key == "YTD":
-        target = pd.Timestamp(year=today.year, month=1, day=1)
-    elif period_key == "1Å":
-        target = today - pd.DateOffset(years=1)
-    elif period_key == "5Å":
-        target = today - pd.DateOffset(years=5)
-    else:
-        return None
-
-    target = pd.Timestamp(target).normalize()
-    idx = pd.DatetimeIndex(closes.index)
-    if idx.tz is not None:
-        idx_naive = idx.tz_localize(None).normalize()
-    else:
-        idx_naive = idx.normalize()
-
-    # Sidste close STRIKT FØR target-datoen — det er Yahoo's reference,
-    # dvs. closen fra dagen FØR periode-grafens første bar (ikke closen
-    # PÅ samme dag som første bar, som ville være periodens åbnings-close).
-    mask = idx_naive < target
-    if mask.any():
-        return float(closes[mask].iloc[-1])
-    # Edge case: target er før vores ældste data → brug ældste close
-    return float(closes.iloc[0])
-
 
 def _ticker_prev_close(ticker):
     """Henter forrige regular-session close (= 'Sidste luk') for en ticker."""
