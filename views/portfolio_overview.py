@@ -22,6 +22,8 @@ from data.market_status import get_us_market_status, get_market_status_for_curre
 from analytics.portfolio import (
     cumulative_return_series, slice_period,
     compute_portfolio_value_series_intraday, cashflow_timeline,
+    compute_portfolio_return_dynamics,
+    compute_grouped_portfolio_return_dynamics,
 )
 from utils.svg_charts import _make_sparkline_data_url
 from views.breakdown import render_breakdown, render_drilldown, _lighten_rgb
@@ -870,3 +872,297 @@ def render_portfolio_overview(
                     render_drilldown(country_rows, per_country, country_color_map)
                 else:
                     st.info("Ingen aktiepositioner at vise lande-fordeling for.")
+
+    # ----- Dynamik i porteføljeafkast -----
+    st.write("")
+    st.write("---")
+    st.subheader("Dynamik i porteføljeafkast")
+
+    dyn_col_period, dyn_col_mode, dyn_col_group = st.columns([1, 1, 1])
+
+    with dyn_col_period:
+        dyn_grouping = st.selectbox(
+            "Periode",
+            ["Daglig", "Ugentlig", "Månedlig", "Årlig"],
+            index=2,
+            key="portfolio_return_dynamics_grouping",
+        )
+
+    with dyn_col_mode:
+        dyn_mode = st.selectbox(
+            "Visning",
+            ["Procent", "Værdi"],
+            index=0,
+            key="portfolio_return_dynamics_mode",
+        )
+
+    with dyn_col_group:
+        dyn_breakdown = st.selectbox(
+            "Gruppering",
+            ["Ingen gruppering", "Aktivklasser", "Sektorer"],
+            index=0,
+            key="portfolio_return_dynamics_breakdown",
+        )
+
+    max_bars_map = {
+        "Daglig": 90,
+        "Ugentlig": 104,
+        "Månedlig": 60,
+        "Årlig": 20,
+    }
+    max_bars = max_bars_map.get(dyn_grouping, 60)
+
+    if dyn_breakdown == "Ingen gruppering":
+        dynamics_df = compute_portfolio_return_dynamics(
+            total_value=total_value,
+            cashflows=cashflows,
+            cashflow_fracs=cashflow_fracs,
+            grouping=dyn_grouping,
+        )
+
+        if dynamics_df.empty:
+            st.info("Der er ikke nok data til at vise dynamik i porteføljeafkast.")
+        else:
+            plot_df = dynamics_df.tail(max_bars).copy()
+
+            if dyn_mode == "Procent":
+                y_col = "return_pct"
+                y_title = "Afkast (%)"
+            else:
+                y_col = "return_dkk"
+                y_title = "Afkast (DKK)"
+
+            bar_colors = np.where(
+                plot_df[y_col] >= 0,
+                "#4fd1c5",
+                "#f45b73",
+            )
+
+            fig_dyn = go.Figure()
+
+            fig_dyn.add_trace(go.Bar(
+                x=plot_df["period_label"],
+                y=plot_df[y_col],
+                marker=dict(
+                    color=bar_colors,
+                    line=dict(width=0),
+                ),
+                name="Portefølje",
+                customdata=np.column_stack([
+                    plot_df["period_start"].dt.strftime("%d-%m-%Y"),
+                    plot_df["period_end"].dt.strftime("%d-%m-%Y"),
+                    plot_df["return_dkk"],
+                    plot_df["return_pct"],
+                ]),
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "Periode: %{customdata[0]} – %{customdata[1]}<br>"
+                    "Afkast DKK: %{customdata[2]:,.2f}<br>"
+                    "Afkast %: %{customdata[3]:.2f}%"
+                    "<extra></extra>"
+                ),
+            ))
+
+            fig_dyn.add_hline(
+                y=0,
+                line_dash="dash",
+                line_color="rgba(120,120,120,0.55)",
+                line_width=1,
+            )
+
+            fig_dyn.update_layout(
+                height=430,
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis=dict(
+                    title="",
+                    tickangle=-45 if len(plot_df) > 12 else 0,
+                ),
+                yaxis=dict(
+                    title=y_title,
+                    zeroline=False,
+                ),
+                hovermode="closest",
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.22,
+                    xanchor="center",
+                    x=0.5,
+                ),
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                separators=".,",
+            )
+
+            st.plotly_chart(fig_dyn, use_container_width=True)
+
+            st.caption(
+                f"Grafen viser periodisk porteføljeafkast grupperet efter {dyn_grouping.lower()} "
+                f"og vist som {dyn_mode.lower()}. Afkastet er korrigeret for ind- og udbetalinger "
+                "efter samme princip som porteføljens øvrige TWR/Modified Dietz-beregninger."
+            )
+
+    else:
+        if "active" in locals() and active is not None and not active.empty:
+            dyn_active_tickers = active["Ticker"].dropna().unique().tolist()
+        else:
+            dyn_active_tickers = []
+
+        if not dyn_active_tickers:
+            st.info("Der er ingen aktive positioner at gruppere.")
+        else:
+            if "ticker_meta" in locals() and isinstance(ticker_meta, dict):
+                dyn_ticker_meta = ticker_meta
+            else:
+                with st.spinner("Henter sektor- og aktivklasse-info..."):
+                    dyn_ticker_meta = fetch_ticker_meta(tuple(dyn_active_tickers))
+
+            if dyn_breakdown == "Aktivklasser":
+                dyn_group_map = {
+                    t: dyn_ticker_meta.get(t, {}).get("asset_class", "Andet")
+                    for t in dyn_active_tickers
+                }
+                residual_group_name = "Kontanter"
+                y_title_pct = "%-point bidrag til porteføljeafkastet"
+            else:
+                dyn_group_map = {
+                    t: dyn_ticker_meta.get(t, {}).get("sector", "Andet")
+                    for t in dyn_active_tickers
+                }
+                residual_group_name = "Kontanter/øvrigt"
+                y_title_pct = "%-point bidrag til porteføljeafkastet"
+
+            grouped_df = compute_grouped_portfolio_return_dynamics(
+                orders=orders_df,
+                prices=prices,
+                usd_dkk=usd_dkk,
+                eur_dkk=eur_dkk,
+                total_value=total_value,
+                cashflows=cashflows,
+                cashflow_fracs=cashflow_fracs,
+                group_map=dyn_group_map,
+                grouping=dyn_grouping,
+                residual_group_name=residual_group_name,
+            )
+
+            if grouped_df.empty:
+                st.info("Der er ikke nok data til at vise grupperet dynamik i porteføljeafkast.")
+            else:
+                period_order = (
+                    grouped_df[["period_label", "period_end"]]
+                    .drop_duplicates()
+                    .sort_values("period_end")
+                    .tail(max_bars)
+                )
+
+                keep_labels = period_order["period_label"].tolist()
+                plot_df = grouped_df[grouped_df["period_label"].isin(keep_labels)].copy()
+
+                plot_df["period_label"] = pd.Categorical(
+                    plot_df["period_label"],
+                    categories=keep_labels,
+                    ordered=True,
+                )
+
+                if dyn_mode == "Procent":
+                    y_col = "return_pct"
+                    y_title = y_title_pct
+                else:
+                    y_col = "return_dkk"
+                    y_title = "Afkastbidrag (DKK)"
+
+                group_order = (
+                    plot_df.groupby("group")["return_dkk"]
+                    .apply(lambda s: abs(float(s.sum())))
+                    .sort_values(ascending=False)
+                    .index
+                    .tolist()
+                )
+
+                palette = (
+                    px.colors.qualitative.Plotly
+                    + px.colors.qualitative.Set2
+                    + px.colors.qualitative.Bold
+                    + px.colors.qualitative.Pastel
+                )
+
+                fig_dyn = go.Figure()
+
+                for i, group_name in enumerate(group_order):
+                    sub_g = (
+                        plot_df[plot_df["group"] == group_name]
+                        .sort_values("period_label")
+                        .copy()
+                    )
+
+                    color = palette[i % len(palette)]
+
+                    fig_dyn.add_trace(go.Bar(
+                        x=sub_g["period_label"],
+                        y=sub_g[y_col],
+                        name=group_name,
+                        marker=dict(
+                            color=color,
+                            line=dict(width=0),
+                        ),
+                        customdata=np.column_stack([
+                            sub_g["period_start"].dt.strftime("%d-%m-%Y"),
+                            sub_g["period_end"].dt.strftime("%d-%m-%Y"),
+                            sub_g["return_dkk"],
+                            sub_g["return_pct"],
+                            sub_g["group"],
+                        ]),
+                        hovertemplate=(
+                            "<b>%{customdata[4]}</b><br>"
+                            "Periode: %{customdata[0]} – %{customdata[1]}<br>"
+                            "Bidrag DKK: %{customdata[2]:,.2f}<br>"
+                            "Bidrag %-point: %{customdata[3]:.2f}"
+                            "<extra></extra>"
+                        ),
+                    ))
+
+                fig_dyn.add_hline(
+                    y=0,
+                    line_dash="dash",
+                    line_color="rgba(120,120,120,0.55)",
+                    line_width=1,
+                )
+
+                fig_dyn.update_layout(
+                    height=470,
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    barmode="relative",
+                    xaxis=dict(
+                        title="",
+                        tickangle=-45 if len(keep_labels) > 12 else 0,
+                    ),
+                    yaxis=dict(
+                        title=y_title,
+                        zeroline=False,
+                    ),
+                    hovermode="closest",
+                    showlegend=True,
+                    legend=dict(
+                        orientation="h",
+                        yanchor="top",
+                        y=-0.25,
+                        xanchor="center",
+                        x=0.5,
+                    ),
+                    plot_bgcolor="white",
+                    paper_bgcolor="white",
+                    separators=".,",
+                )
+
+                st.plotly_chart(fig_dyn, use_container_width=True)
+
+                st.caption(
+                    f"Grafen viser porteføljens afkastbidrag grupperet efter {dyn_breakdown.lower()} "
+                    f"og periodiseret efter {dyn_grouping.lower()}. "
+                    "Løbende køb og salg korrigeres ved at behandle køb som kapital ind i gruppen "
+                    "og salg som kapital ud af gruppen, så handler ikke fejlagtigt vises som afkast. "
+                    "Ved procentvisning vises bidrag i procentpoint til porteføljeafkastet, "
+                    "ikke gruppens interne afkastprocent."
+                )
+

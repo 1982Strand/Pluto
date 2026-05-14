@@ -369,6 +369,551 @@ def cumulative_return_series(values, cashflows, dates, cashflow_fracs=None):
     return pd.Series(return_dkk, index=dates), pd.Series(twr_pct, index=dates)
 
 
+def compute_portfolio_return_dynamics(
+    total_value: pd.Series,
+    cashflows: pd.Series,
+    cashflow_fracs=None,
+    grouping: str = "Månedlig",
+) -> pd.DataFrame:
+    """
+    Beregner periodisk porteføljeafkast til søjlediagram:
+    daglig, ugentlig, månedlig eller årlig.
+
+    Returnerer DataFrame med:
+    - period_start
+    - period_end
+    - period_label
+    - return_dkk
+    - return_pct
+
+    Beregningen er cashflow-korrigeret efter samme princip som resten af appen:
+    Afkast DKK = slutværdi - startværdi - netto cashflows i perioden
+
+    Afkast % beregnes med en Modified Dietz-lignende kapitalbase:
+    kapitalbase = startværdi + sum(cashflow_i * vægt_i)
+
+    Funktionen er 100% Streamlit-fri og hører derfor hjemme i analytics-laget.
+    """
+
+    if total_value is None or len(total_value) < 2:
+        return pd.DataFrame(columns=[
+            "period_start", "period_end", "period_label",
+            "return_dkk", "return_pct"
+        ])
+
+    grouping_map = {
+        "Daglig": "D",
+        "Ugentlig": "W",
+        "Månedlig": "M",
+        "Årlig": "Y",
+        "Daily": "D",
+        "Weekly": "W",
+        "Monthly": "M",
+        "Yearly": "Y",
+        "D": "D",
+        "W": "W",
+        "M": "M",
+        "Y": "Y",
+    }
+
+    freq = grouping_map.get(grouping, "M")
+
+    values = total_value.copy()
+    values.index = pd.to_datetime(values.index)
+    values = values.sort_index().astype(float).replace([np.inf, -np.inf], np.nan).dropna()
+
+    if len(values) < 2:
+        return pd.DataFrame(columns=[
+            "period_start", "period_end", "period_label",
+            "return_dkk", "return_pct"
+        ])
+
+    cf = cashflows.copy() if cashflows is not None else pd.Series(0.0, index=values.index)
+    cf.index = pd.to_datetime(cf.index)
+    cf = cf.reindex(values.index).fillna(0.0).astype(float)
+
+    if cashflow_fracs is None:
+        fracs = pd.Series(0.0, index=values.index)
+    else:
+        fracs = cashflow_fracs.copy()
+        fracs.index = pd.to_datetime(fracs.index)
+        fracs = fracs.reindex(values.index).fillna(0.0).astype(float)
+
+    df = pd.DataFrame({
+        "value": values,
+        "cashflow": cf,
+        "frac": fracs,
+    }, index=values.index)
+
+    df = df.sort_index()
+    df["row_no"] = np.arange(len(df))
+
+    if freq == "D":
+        df["period"] = df.index.to_period("D")
+    elif freq == "W":
+        df["period"] = df.index.to_period("W-SUN")
+    elif freq == "Y":
+        df["period"] = df.index.to_period("Y")
+    else:
+        df["period"] = df.index.to_period("M")
+
+    month_names_da = {
+        1: "jan", 2: "feb", 3: "mar", 4: "apr",
+        5: "maj", 6: "jun", 7: "jul", 8: "aug",
+        9: "sep", 10: "okt", 11: "nov", 12: "dec",
+    }
+
+    def _period_label(period_key, period_end):
+        if freq == "D":
+            return period_end.strftime("%d-%m-%Y")
+
+        if freq == "W":
+            iso = period_end.isocalendar()
+            return f"uge {int(iso.week)} {int(iso.year)}"
+
+        if freq == "Y":
+            return str(period_end.year)
+
+        return f"{month_names_da.get(period_end.month, period_end.strftime('%b'))} {period_end.year}"
+
+    rows = []
+
+    for period_key, sub in df.groupby("period", sort=True):
+        if sub.empty:
+            continue
+
+        first_row = int(sub["row_no"].iloc[0])
+        last_row = int(sub["row_no"].iloc[-1])
+
+        # For perioden bruges værdien lige før perioden som start,
+        # hvis den findes. Ellers bruges første punkt i perioden.
+        if first_row > 0:
+            start_row = first_row - 1
+            cf_sub = sub
+        else:
+            start_row = first_row
+            # Første datapunkt er startværdi; cashflows på selve startpunktet
+            # medtages ikke som periode-cashflow for at undgå dobbeltregning.
+            cf_sub = sub.iloc[1:]
+
+        start_ts = df.index[start_row]
+        end_ts = df.index[last_row]
+
+        if end_ts <= start_ts:
+            continue
+
+        start_value = float(df["value"].iloc[start_row])
+        end_value = float(df["value"].iloc[last_row])
+
+        cf_sum = float(cf_sub["cashflow"].sum()) if not cf_sub.empty else 0.0
+        return_dkk = end_value - start_value - cf_sum
+
+        period_days = max((end_ts - start_ts).total_seconds() / 86400.0, 1e-9)
+
+        weighted_cf = 0.0
+        if not cf_sub.empty:
+            for cf_date, cf_row in cf_sub.iterrows():
+                cf_amount = float(cf_row["cashflow"])
+                cf_frac = float(cf_row["frac"])
+
+                # Cashflow-tidspunkt indenfor dagen.
+                cf_ts = cf_date + pd.to_timedelta(cf_frac, unit="D")
+
+                # Vægt = hvor stor del af perioden cashflowet har været investeret.
+                weight = (end_ts - cf_ts).total_seconds() / 86400.0 / period_days
+                weight = min(max(weight, 0.0), 1.0)
+
+                weighted_cf += cf_amount * weight
+
+        denom = start_value + weighted_cf
+
+        if abs(denom) > 1e-9:
+            return_pct = return_dkk / denom * 100.0
+        else:
+            return_pct = 0.0
+
+        period_start = sub.index[0]
+        period_end = sub.index[-1]
+
+        rows.append({
+            "period_start": period_start,
+            "period_end": period_end,
+            "period_label": _period_label(period_key, period_end),
+            "return_dkk": return_dkk,
+            "return_pct": return_pct,
+        })
+
+    out = pd.DataFrame(rows)
+
+    if out.empty:
+        return pd.DataFrame(columns=[
+            "period_start", "period_end", "period_label",
+            "return_dkk", "return_pct"
+        ])
+
+    out = out.replace([np.inf, -np.inf], np.nan).dropna(subset=["return_dkk", "return_pct"])
+    return out.reset_index(drop=True)
+
+
+def compute_grouped_portfolio_return_dynamics(
+    orders: pd.DataFrame,
+    prices: pd.DataFrame,
+    usd_dkk: pd.Series,
+    eur_dkk: pd.Series,
+    total_value: pd.Series,
+    cashflows: pd.Series,
+    cashflow_fracs=None,
+    group_map: dict | None = None,
+    grouping: str = "Månedlig",
+    residual_group_name: str = "Kontanter/øvrigt",
+) -> pd.DataFrame:
+    """
+    Beregner grupperet periodisk bidrag til porteføljeafkast.
+
+    Bruges til grupperinger som:
+    - Aktivklasser
+    - Sektorer
+
+    Returnerer long-format DataFrame med:
+    - period_start
+    - period_end
+    - period_label
+    - group
+    - return_dkk
+    - return_pct
+
+    Vigtig beregningslogik:
+    For hver gruppe beregnes periodebidrag som:
+
+        slutværdi - startværdi - netto kapital ind i gruppen
+
+    hvor netto kapital ind i gruppen er:
+        BUY = positiv kapital ind
+        SELL = negativ kapital ind
+
+    Det betyder, at løbende køb/salg ikke fejlagtigt bliver vist som afkast.
+
+    Procentvisning er %-point bidrag til porteføljeafkastet:
+        gruppe_return_dkk / porteføljens Modified Dietz-lignende kapitalbase
+
+    Funktionen er 100% Streamlit-fri og hører derfor hjemme i analytics-laget.
+    """
+
+    empty_cols = [
+        "period_start", "period_end", "period_label",
+        "group", "return_dkk", "return_pct"
+    ]
+
+    if (
+        orders is None or orders.empty
+        or prices is None or prices.empty
+        or total_value is None or len(total_value) < 2
+        or group_map is None or not group_map
+    ):
+        return pd.DataFrame(columns=empty_cols)
+
+    grouping_map = {
+        "Daglig": "D",
+        "Ugentlig": "W",
+        "Månedlig": "M",
+        "Årlig": "Y",
+        "Daily": "D",
+        "Weekly": "W",
+        "Monthly": "M",
+        "Yearly": "Y",
+        "D": "D",
+        "W": "W",
+        "M": "M",
+        "Y": "Y",
+    }
+
+    freq = grouping_map.get(grouping, "M")
+
+    values = total_value.copy()
+    values.index = pd.to_datetime(values.index)
+    values = values.sort_index().astype(float).replace([np.inf, -np.inf], np.nan).dropna()
+
+    if len(values) < 2:
+        return pd.DataFrame(columns=empty_cols)
+
+    date_range = values.index
+
+    cf_total = cashflows.copy() if cashflows is not None else pd.Series(0.0, index=date_range)
+    cf_total.index = pd.to_datetime(cf_total.index)
+    cf_total = cf_total.reindex(date_range).fillna(0.0).astype(float)
+
+    if cashflow_fracs is None:
+        fracs_total = pd.Series(0.0, index=date_range)
+    else:
+        fracs_total = cashflow_fracs.copy()
+        fracs_total.index = pd.to_datetime(fracs_total.index)
+        fracs_total = fracs_total.reindex(date_range).fillna(0.0).astype(float)
+
+    orders_work = orders.copy()
+
+    if "TradeDate" not in orders_work.columns:
+        orders_work["TradeDate"] = pd.to_datetime(
+            orders_work["Date"],
+            dayfirst=True,
+            errors="coerce",
+        ).dt.normalize()
+    else:
+        orders_work["TradeDate"] = pd.to_datetime(
+            orders_work["TradeDate"],
+            errors="coerce",
+        ).dt.normalize()
+
+    orders_work = orders_work.dropna(subset=["TradeDate", "Ticker"]).copy()
+
+    if orders_work.empty:
+        return pd.DataFrame(columns=empty_cols)
+
+    orders_work["Qty_Adj"] = np.where(
+        orders_work["Side"] == "BUY",
+        orders_work["Quantity"],
+        -orders_work["Quantity"],
+    )
+
+    # BUY = kapital ind i gruppen, SELL = kapital ud af gruppen.
+    orders_work["Capital_Flow_DKK"] = np.where(
+        orders_work["Side"] == "BUY",
+        orders_work["Notional, DKK"],
+        -orders_work["Notional, DKK"],
+    ).astype(float)
+
+    tickers = sorted([
+        t for t in orders_work["Ticker"].dropna().unique().tolist()
+        if t in group_map
+    ])
+
+    if not tickers:
+        return pd.DataFrame(columns=empty_cols)
+
+    # Holdings pr. ticker pr. dag.
+    holdings = pd.DataFrame(0.0, index=date_range, columns=tickers)
+
+    for t in tickers:
+        sub = orders_work[orders_work["Ticker"] == t]
+        daily_change = sub.groupby("TradeDate")["Qty_Adj"].sum()
+        holdings[t] = (
+            daily_change
+            .cumsum()
+            .reindex(date_range, method="ffill")
+            .fillna(0.0)
+        )
+
+    px = prices.copy()
+    px.index = pd.to_datetime(px.index)
+    px = px.reindex(date_range).ffill().bfill()
+
+    usd_series = usd_dkk.copy() if usd_dkk is not None else pd.Series(6.85, index=date_range)
+    usd_series.index = pd.to_datetime(usd_series.index)
+    usd_series = usd_series.reindex(date_range).ffill().bfill().fillna(6.85)
+
+    eur_series = eur_dkk.copy() if eur_dkk is not None else pd.Series(7.46, index=date_range)
+    eur_series.index = pd.to_datetime(eur_series.index)
+    eur_series = eur_series.reindex(date_range).ffill().bfill().fillna(7.46)
+
+    asset_ccy = (
+        orders_work
+        .drop_duplicates("Ticker")
+        .set_index("Ticker")["Asset currency"]
+        .to_dict()
+    )
+
+    # Daglig værdi pr. ticker i DKK.
+    ticker_values = pd.DataFrame(0.0, index=date_range, columns=tickers)
+
+    for t in tickers:
+        if t not in px.columns:
+            continue
+
+        price_t = px[t].ffill().bfill().fillna(0.0)
+        ccy = asset_ccy.get(t, "USD")
+
+        if ccy == "USD":
+            rate = usd_series
+        elif ccy == "EUR":
+            rate = eur_series
+        else:
+            rate = pd.Series(1.0, index=date_range)
+
+        ticker_values[t] = holdings[t] * price_t * rate
+
+    # Sum ticker-værdier pr. gruppe.
+    groups = sorted(set(group_map.get(t, "Andet") for t in tickers))
+    group_values = pd.DataFrame(0.0, index=date_range, columns=groups)
+
+    for t in tickers:
+        g = group_map.get(t, "Andet")
+        if g not in group_values.columns:
+            group_values[g] = 0.0
+        group_values[g] = group_values[g] + ticker_values[t]
+
+    # Kapitalflow pr. gruppe pr. dag.
+    group_capital_flows = pd.DataFrame(0.0, index=date_range, columns=group_values.columns)
+
+    for t in tickers:
+        g = group_map.get(t, "Andet")
+        sub = orders_work[orders_work["Ticker"] == t]
+        daily_flow = sub.groupby("TradeDate")["Capital_Flow_DKK"].sum()
+        group_capital_flows[g] = (
+            group_capital_flows[g]
+            + daily_flow.reindex(date_range).fillna(0.0)
+        )
+
+    # Perioder.
+    period_df = pd.DataFrame(index=date_range)
+    period_df["value"] = values
+    period_df["cashflow"] = cf_total
+    period_df["frac"] = fracs_total
+    period_df["row_no"] = np.arange(len(period_df))
+
+    if freq == "D":
+        period_df["period"] = period_df.index.to_period("D")
+    elif freq == "W":
+        period_df["period"] = period_df.index.to_period("W-SUN")
+    elif freq == "Y":
+        period_df["period"] = period_df.index.to_period("Y")
+    else:
+        period_df["period"] = period_df.index.to_period("M")
+
+    month_names_da = {
+        1: "jan", 2: "feb", 3: "mar", 4: "apr",
+        5: "maj", 6: "jun", 7: "jul", 8: "aug",
+        9: "sep", 10: "okt", 11: "nov", 12: "dec",
+    }
+
+    def _period_label(period_end):
+        if freq == "D":
+            return period_end.strftime("%d-%m-%Y")
+
+        if freq == "W":
+            iso = period_end.isocalendar()
+            return f"uge {int(iso.week)} {int(iso.year)}"
+
+        if freq == "Y":
+            return str(period_end.year)
+
+        return f"{month_names_da.get(period_end.month, period_end.strftime('%b'))} {period_end.year}"
+
+    def _period_denominator(start_row, first_row, last_row, sub_period):
+        start_ts = period_df.index[start_row]
+        end_ts = period_df.index[last_row]
+        start_value = float(period_df["value"].iloc[start_row])
+
+        if end_ts <= start_ts:
+            return start_value
+
+        if first_row > 0:
+            cf_sub = sub_period
+        else:
+            cf_sub = sub_period.iloc[1:]
+
+        period_days = max((end_ts - start_ts).total_seconds() / 86400.0, 1e-9)
+
+        weighted_cf = 0.0
+
+        for cf_date, cf_row in cf_sub.iterrows():
+            cf_amount = float(cf_row["cashflow"])
+            cf_frac = float(cf_row["frac"])
+            cf_ts = cf_date + pd.to_timedelta(cf_frac, unit="D")
+
+            weight = (end_ts - cf_ts).total_seconds() / 86400.0 / period_days
+            weight = min(max(weight, 0.0), 1.0)
+
+            weighted_cf += cf_amount * weight
+
+        return start_value + weighted_cf
+
+    rows = []
+
+    for _period_key, sub_period in period_df.groupby("period", sort=True):
+        if sub_period.empty:
+            continue
+
+        first_row = int(sub_period["row_no"].iloc[0])
+        last_row = int(sub_period["row_no"].iloc[-1])
+
+        if first_row > 0:
+            start_row = first_row - 1
+            cf_slice_start_row = first_row
+        else:
+            start_row = first_row
+            cf_slice_start_row = first_row + 1
+
+        start_ts = period_df.index[start_row]
+        end_ts = period_df.index[last_row]
+
+        if end_ts <= start_ts:
+            continue
+
+        period_start = sub_period.index[0]
+        period_end = sub_period.index[-1]
+        label = _period_label(period_end)
+
+        denom = _period_denominator(start_row, first_row, last_row, sub_period)
+
+        group_returns_this_period = {}
+
+        for g in group_values.columns:
+            start_val_g = float(group_values[g].iloc[start_row])
+            end_val_g = float(group_values[g].iloc[last_row])
+
+            if cf_slice_start_row <= last_row:
+                flow_g = float(group_capital_flows[g].iloc[cf_slice_start_row:last_row + 1].sum())
+            else:
+                flow_g = 0.0
+
+            ret_g = end_val_g - start_val_g - flow_g
+            group_returns_this_period[g] = ret_g
+
+        # Total periodeafkast efter samme overordnede princip.
+        if first_row > 0:
+            cf_total_sub = sub_period["cashflow"]
+        else:
+            cf_total_sub = sub_period["cashflow"].iloc[1:]
+
+        total_return_dkk = (
+            float(period_df["value"].iloc[last_row])
+            - float(period_df["value"].iloc[start_row])
+            - float(cf_total_sub.sum())
+        )
+
+        stock_group_sum = float(sum(group_returns_this_period.values()))
+        residual_return = total_return_dkk - stock_group_sum
+
+        # Residual bruges til kontanter/øvrigt, så summeringen passer med totalporteføljen.
+        if abs(residual_return) > 1e-9 or residual_group_name:
+            group_returns_this_period[residual_group_name] = (
+                group_returns_this_period.get(residual_group_name, 0.0)
+                + residual_return
+            )
+
+        for g, ret_g in group_returns_this_period.items():
+            if abs(ret_g) < 1e-9:
+                continue
+
+            ret_pct = (ret_g / denom * 100.0) if abs(denom) > 1e-9 else 0.0
+
+            rows.append({
+                "period_start": period_start,
+                "period_end": period_end,
+                "period_label": label,
+                "group": g,
+                "return_dkk": ret_g,
+                "return_pct": ret_pct,
+            })
+
+    out = pd.DataFrame(rows)
+
+    if out.empty:
+        return pd.DataFrame(columns=empty_cols)
+
+    out = out.replace([np.inf, -np.inf], np.nan).dropna(subset=["return_dkk", "return_pct"])
+    return out.reset_index(drop=True)
+
+
 def slice_period(value_series, cf_series, period_key):
     """Slicer tidsserien til den valgte periode."""
     end_date = value_series.index[-1]
