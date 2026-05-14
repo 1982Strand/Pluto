@@ -66,7 +66,7 @@ Regler:
 ### views/ — Alt Streamlit-UI
 | Fil | Ansvar |
 |-----|--------|
-| `views/portfolio_overview.py` | `render_portfolio_overview(...)` — TWR-graf, aktietabel med live-kurser, nøgletal (urealiseret/realiseret P/L, omkostninger), "Alle beholdninger"-donut, Fordelinger-tabs (Sektorer/Aktivklasser/Valutaer/Regioner/Lande). |
+| `views/portfolio_overview.py` | `render_portfolio_overview(...)` — TWR-graf, aktietabel med live-kurser, nøgletal (urealiseret/realiseret P/L, omkostninger), "Alle beholdninger"-donut, Fordelinger-tabs (Sektorer/Aktivklasser/Valutaer/Regioner/Lande) samt nederste graf "Dynamik i porteføljeafkast". Dynamik-grafen kan vises dagligt, ugentligt, månedligt og årligt, enten som procent eller værdi, og kan grupperes efter Ingen gruppering, Aktivklasser eller Sektorer.. |
 | `views/wallet.py` | `render_wallet(...)` — Kontante beholdninger, indbetalingstidspunkter med TWR-tidskorrigering, bevægelser pr. valuta. |
 | `views/asset_detail.py` | `render_asset_detail(...)` — Detalje-side for enkelt aktie, åbnes via `?ticker=XXX` i URL. |
 | `views/breakdown.py` | `render_breakdown(...)`, `render_drilldown(...)`, `_lighten_rgb(...)` — Genanvendelige fordeling-komponenter brugt af `portfolio_overview`. |
@@ -87,6 +87,15 @@ Plutos prismodel: 0,15% af handelsbeløb i USD/EUR (`PLUTO_FX_SPREAD_RATE`). Ver
 
 **Handelshistorik og GAK:**
 `compute_ticker_lifecycle` i `analytics/portfolio.py` beregner livscyklus pr. ticker: investeret, realiseret, nuværende værdi og simpelt afkast (ikke TWR). GAK i aktivvaluta hentes fra `positions_df["Average entry price (asset currency)"]` for aktive positioner — Plutos egne præcise tal. Handelspriser beregnes via `FX rate`-kolonnen i Orders-fanen (bemærk lille 'r'). Afkast = (nuværende værdi + realiseret salgsbeløb − investeret) / investeret.
+
+**Dynamik i porteføljeafkast:**
+Portefølje-fanen har nederst en graf "Dynamik i porteføljeafkast", inspireret af Pluto-visningen. Grafen beregnes i analytics-laget og renderes i views-laget. Den understøtter periodisering efter Daglig, Ugentlig, Månedlig og Årlig samt visning som Procent eller Værdi.
+
+Ved "Ingen gruppering" bruges compute_portfolio_return_dynamics(...), som beregner periodisk porteføljeafkast ud fra total_value, cashflows og cashflow_fracs.
+
+Ved gruppering efter Aktivklasser eller Sektorer bruges compute_grouped_portfolio_return_dynamics(...). Funktionen beregner historisk værdi pr. ticker, summerer efter group_map og korrigerer for køb/salg i perioden. BUY behandles som kapital ind i gruppen, SELL som kapital ud af gruppen, så løbende handler ikke fejlagtigt vises som afkast.
+
+Ved procentvisning i grupperet graf vises bidrag i procentpoint til porteføljeafkastet, ikke gruppens interne afkastprocent. Kontanter/øvrigt medtages som residualgruppe, så grupperede bidrag summerer mod samlet porteføljeafkast.
 
 **Routing:**
 Detalje-siden åbnes via query parameter `?ticker=XXX`. `app.py` tjekker `st.query_params.get("ticker")` og kalder `render_asset_detail` + `st.stop()` hvis sat.
@@ -112,15 +121,15 @@ Detalje-siden åbnes via query parameter `?ticker=XXX`. `app.py` tjekker `st.que
 
 ```
 XLSX-fil
-  └── app.py (indlæsning + rensning)
-        ├── analytics/portfolio.py (TWR, porteføljeværdi-serier, ticker-livscyklus)
-        │     └── data/cached.py (cachede yfinance-kald)
-        │           └── data/fetch.py (rene yfinance-funktioner)
-        └── views/
-              ├── portfolio_overview.py  ← tab 1
-              ├── wallet.py              ← tab 2
-              ├── history.py             ← tab 3
-              └── asset_detail.py        ← detalje-side (?ticker=)
+ └── app.py (indlæsning + rensning)
+     ├── analytics/portfolio.py (TWR, porteføljeværdi-serier, ticker-livscyklus, dynamik i porteføljeafkast)
+     │   └── data/cached.py (cachede yfinance-kald)
+     │       └── data/fetch.py (rene yfinance-funktioner)
+     └── views/
+         ├── portfolio_overview.py ← tab 1, inkl. TWR-graf, beholdninger, fordelinger og dynamik-graf
+         ├── wallet.py ← tab 2
+         ├── history.py ← tab 3
+         └── asset_detail.py ← detalje-side (?ticker=)
 ```
 
 ---
