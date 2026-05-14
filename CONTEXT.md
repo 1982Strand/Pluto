@@ -61,7 +61,7 @@ Regler:
 ### analytics/ — Kerneberegninger (100% Streamlit-fri)
 | Fil | Ansvar |
 |-----|--------|
-| `analytics/portfolio.py` | `compute_portfolio_value_series`, `compute_portfolio_value_series_intraday`, `compute_deposits_dkk`, `cashflow_timeline`, `cumulative_return_series`, `slice_period`, `build_holdings_matrix`. Importerer fra `data.cached`. |
+| `analytics/portfolio.py` | `compute_portfolio_value_series`, `compute_portfolio_value_series_intraday`, `compute_deposits_dkk`, `cashflow_timeline`, `cumulative_return_series`, `slice_period`, `build_holdings_matrix`, `compute_ticker_lifecycle`. Importerer fra `data.cached`. |
 
 ### views/ — Alt Streamlit-UI
 | Fil | Ansvar |
@@ -70,6 +70,7 @@ Regler:
 | `views/wallet.py` | `render_wallet(...)` — Kontante beholdninger, indbetalingstidspunkter med TWR-tidskorrigering, bevægelser pr. valuta. |
 | `views/asset_detail.py` | `render_asset_detail(...)` — Detalje-side for enkelt aktie, åbnes via `?ticker=XXX` i URL. |
 | `views/breakdown.py` | `render_breakdown(...)`, `render_drilldown(...)`, `_lighten_rgb(...)` — Genanvendelige fordeling-komponenter brugt af `portfolio_overview`. |
+| `views/history.py` | `render_history(...)` — Historik-tab med expanders pr. ticker. Viser livscyklus, nøgletal (GAK, vægtet salgspris) og handelshistorik for både aktive og lukkede positioner. |
 
 ---
 
@@ -83,6 +84,9 @@ TWR beregnes med Modified Dietz-metoden. `compute_deposits_dkk` konverterer USD/
 
 **FX-spread:**
 Plutos prismodel: 0,15% af handelsbeløb i USD/EUR (`PLUTO_FX_SPREAD_RATE`). Verificeret mod konkret handel. Kurtage hentes direkte fra XLSX-kolonnen "Commission (account currency)".
+
+**Handelshistorik og GAK:**
+`compute_ticker_lifecycle` i `analytics/portfolio.py` beregner livscyklus pr. ticker: investeret, realiseret, nuværende værdi og simpelt afkast (ikke TWR). GAK i aktivvaluta hentes fra `positions_df["Average entry price (asset currency)"]` for aktive positioner — Plutos egne præcise tal. Handelspriser beregnes via `FX rate`-kolonnen i Orders-fanen (bemærk lille 'r'). Afkast = (nuværende værdi + realiseret salgsbeløb − investeret) / investeret.
 
 **Routing:**
 Detalje-siden åbnes via query parameter `?ticker=XXX`. `app.py` tjekker `st.query_params.get("ticker")` og kalder `render_asset_detail` + `st.stop()` hvis sat.
@@ -109,12 +113,13 @@ Detalje-siden åbnes via query parameter `?ticker=XXX`. `app.py` tjekker `st.que
 ```
 XLSX-fil
   └── app.py (indlæsning + rensning)
-        ├── analytics/portfolio.py (TWR, porteføljeværdi-serier)
+        ├── analytics/portfolio.py (TWR, porteføljeværdi-serier, ticker-livscyklus)
         │     └── data/cached.py (cachede yfinance-kald)
         │           └── data/fetch.py (rene yfinance-funktioner)
         └── views/
               ├── portfolio_overview.py  ← tab 1
               ├── wallet.py              ← tab 2
+              ├── history.py             ← tab 3
               └── asset_detail.py        ← detalje-side (?ticker=)
 ```
 
