@@ -24,6 +24,8 @@ from analytics.portfolio import compute_portfolio_value_series, compute_deposits
 from views.asset_detail import render_asset_detail
 from views.portfolio_overview import render_portfolio_overview
 from views.wallet import render_wallet
+from analytics.portfolio import compute_ticker_lifecycle
+from views.history import render_history
 
 # -------------------- SIDEBAR --------------------
 with st.sidebar:
@@ -166,7 +168,7 @@ try:
         st.stop()
 
     # --- Tabs ---
-    tab_main, tab_wallet = st.tabs(["📈 Portefølje", "👛 Pung"])
+    tab_main, tab_wallet, tab_history = st.tabs(["📈 Portefølje", "👛 Pung", "📜 Historik"])
 
     with tab_main:
         render_portfolio_overview(
@@ -177,6 +179,15 @@ try:
 
     with tab_wallet:
         render_wallet(cash_df, dkk_tx, usd_tx, eur_tx, orders_df)
+        
+    with tab_history:
+        _usd_now = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
+        _eur_now = _live_fx.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
+        _live_quotes_hist = fetch_live_quotes(tuple(orders_df["Ticker"].unique().tolist()))
+        lifecycle = compute_ticker_lifecycle(
+            orders_df, prices, _live_quotes_hist, _usd_now, _eur_now, positions_df=positions_df,
+        )
+        render_history(lifecycle, _usd_now, _eur_now)
 
 except Exception as e:
     st.error(f"Fejl ved behandling af data: {e}")

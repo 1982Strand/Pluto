@@ -776,40 +776,44 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         d_str = r["Date"].strftime("%d. %b %Y %H:%M") if pd.notnull(r["Date"]) else "—"
         ac = r.get("Account currency", "")
         qty = r["Quantity"] if r["Quantity"] else 0
+        fx_rate      = _safe_float(r.get("FX rate"))
         notional_dkk = _safe_float(r.get("Notional, DKK")) or 0
         notional_ac  = _safe_float(r.get("Notional (account currency)")) or 0
-        notional_asset_ccy = _safe_float(r.get("Notional (asset currency)")) or 0
 
-        # Pris i aktivets valuta: direkte fra XLSX-kolonnen "Notional (asset currency)"
-        px_local = notional_asset_ccy / qty if qty else 0
+        # Pris i aktivets valuta
+        if ac == asset_ccy or not fx_rate:
+            px_local = notional_ac / qty if qty else 0
+        else:
+            notional_asset = notional_dkk / fx_rate
+            px_local = notional_asset / qty if qty else 0
 
-        # Fra konto: beløb i kontovaluta
+        # Fra konto
         ac_sym = _ccy_sym_map.get(ac, ac)
         fra_konto_str = (
             f"{_da_num(notional_ac)} {ac_sym}" if ac == "DKK"
             else f"{ac_sym} {_da_num(notional_ac)}"
         )
 
-        # Vekselgebyr (kun ved krydsvaluta-handler)
+        # Vekselgebyr
         veksel_str = (
             f"{_da_num(notional_dkk * PLUTO_FX_SPREAD_RATE)} kr."
             if ac != asset_ccy else "—"
         )
 
         # Kurtage i DKK
-        comm = _safe_float(r.get("Commission (account currency)")) or 0
-        rate_t = usd_dkk_now if ac == "USD" else (eur_dkk_now if ac == "EUR" else 1.0)
+        comm    = _safe_float(r.get("Commission (account currency)")) or 0
+        rate_t  = usd_dkk_now if ac == "USD" else (eur_dkk_now if ac == "EUR" else 1.0)
         comm_dkk = comm * rate_t
 
         trades_rows.append({
-            "Dato": d_str,
-            "Side": r["Side"],
-            "Antal": format_quantity(qty),
+            "Dato":                d_str,
+            "Side":                r["Side"],
+            "Antal":               format_quantity(qty),
             f"Pris ({asset_ccy})": f"{ccy_sym} {_da_num(px_local)}",
-            "Fra konto": fra_konto_str,
-            "Beløb (DKK)": f"{_da_num(notional_dkk)} kr.",
-            "Vekselgebyr (DKK)": veksel_str,
-            "Kurtage (DKK)": f"{_da_num(comm_dkk)} kr." if comm_dkk else "—",
+            "Fra konto":           fra_konto_str,
+            "Beløb (DKK)":         f"{_da_num(notional_dkk)} kr.",
+            "Vekselgebyr (DKK)":   veksel_str,
+            "Kurtage (DKK)":       f"{_da_num(comm_dkk)} kr." if comm_dkk else "—",
         })
     if trades_rows:
         trades_df_disp = pd.DataFrame(trades_rows)

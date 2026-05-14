@@ -5,6 +5,7 @@ from datetime import timedelta
 from config import DEFAULT_DEPOSIT_TIME
 from data.deposits import load_deposit_times, _deposit_key, _time_to_frac
 from data.cached import fetch_price_history, fetch_price_history_intraday
+from utils.formatting import _safe_float
 
 def cashflow_timeline(tx_df, date_range):
     """Akkumuleret saldo for en transaktionsliste, reindekseret til daglig frekvens."""
@@ -395,3 +396,94 @@ def slice_period(value_series, cf_series, period_key):
     start = max(start, value_series.index[0])
     mask = value_series.index >= start
     return value_series[mask], cf_series[mask], value_series.index[mask]
+    
+def compute_ticker_lifecycle(
+    orders_df: pd.DataFrame,
+    prices: pd.DataFrame,
+    live_quotes: dict,
+    usd_dkk: float,
+    eur_dkk: float,
+    positions_df=None,
+) -> list[dict]:
+    """
+    Beregn livscyklus (køb→salg, afkast) for hver enkelt ticker.
+    Returnerer sorteret liste: aktive øverst (efter afkast%), lukkede nederst (efter salgsdato).
+    """
+    if orders_df.empty:
+        return []
+
+    lifecycle_list = []
+
+    for ticker in orders_df["Ticker"].unique():
+        sub = orders_df[orders_df["Ticker"] == ticker].copy()
+
+        # Grundoplysninger
+        name = sub["Name"].iloc[0] if not sub.empty else ticker
+        asset_ccy = sub["Asset currency"].iloc[0] if not sub.empty else "USD"
+        fx_rate = usd_dkk if asset_ccy == "USD" else (eur_dkk if asset_ccy == "EUR" else 1.0)
+        
+        # Kvantitet og beløb
+        sub["Qty_Adj"] = np.where(sub["Side"] == "BUY", sub["Quantity"], -sub["Quantity"])
+        total_qty = float(sub["Qty_Adj"].sum())
+        is_active = total_qty > 0.001
+        
+        # Hent præcis GAK fra positions_df (kun aktive positioner)
+        gak_valuta = None
+        if is_active and positions_df is not None and not positions_df.empty:
+            pos_row = positions_df[positions_df["Ticker"] == ticker]
+            if not pos_row.empty:
+                gak_valuta = _safe_float(
+                    pos_row["Average entry price (asset currency)"].iloc[0]
+                )
+        
+        # Datoer
+        sub_sorted = sub.sort_values("Date")
+        first_buy = sub_sorted["Date"].iloc[0]
+        last_activity = sub_sorted["Date"].iloc[-1]
+
+        last_sale = None
+        sells = sub[sub["Side"] == "SELL"].sort_values("Date")
+        if not sells.empty:
+            last_sale = sells["Date"].iloc[-1]
+
+        # Investeret og realiseret
+        buys_dkk  = float(sub[sub["Side"] == "BUY"]["Notional, DKK"].sum())
+        sells_dkk = float(sub[sub["Side"] == "SELL"]["Notional, DKK"].sum())
+
+        # Nuværende værdi (kun hvis aktiv)
+        current_value_dkk = 0.0
+        if is_active:
+            live_price = live_quotes.get(ticker, {}).get("live")
+            if live_price is None and ticker in prices.columns:
+                price_series = prices[ticker].dropna()
+                live_price = float(price_series.iloc[-1]) if len(price_series) else None
+            if live_price is not None:
+                current_value_dkk = total_qty * live_price * fx_rate
+
+        # Simpelt afkast
+        total_return_dkk = current_value_dkk + sells_dkk - buys_dkk
+        total_return_pct = (total_return_dkk / buys_dkk * 100) if buys_dkk > 0 else 0.0
+
+        lifecycle_list.append({
+            "ticker":            ticker,
+            "name":              name,
+            "asset_ccy":         asset_ccy,
+            "is_active":         is_active,
+            "first_buy":         first_buy,
+            "last_activity":     last_activity,
+            "last_sale":         last_sale,
+            "invested_dkk":      buys_dkk,
+            "realized_dkk":      sells_dkk,
+            "current_value_dkk": current_value_dkk,
+            "total_qty":         total_qty,
+            "total_return_dkk":  total_return_dkk,
+            "total_return_pct":  total_return_pct,
+            "orders":            sub,
+            "gak_valuta":        gak_valuta,
+        })
+
+    # Sortering: aktive øverst (afkast% DESC), lukkede nederst (last_activity DESC)
+    active = sorted([x for x in lifecycle_list if     x["is_active"]], key=lambda x: x["total_return_pct"], reverse=True)
+    closed = sorted([x for x in lifecycle_list if not x["is_active"]], key=lambda x: x["last_activity"],    reverse=True)
+
+    return active + closed
