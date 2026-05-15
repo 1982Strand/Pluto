@@ -846,50 +846,6 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             meta_lines.append(f"**Website:** [{info['website']}]({info['website']})")
         if meta_lines:
             st.markdown("  \n".join(meta_lines))
-            
-# -------------------- AKTIV-DETALJE-SIDE --------------------
-
-def _ticker_prev_close(ticker):
-    """Henter forrige regular-session close (= 'Sidste luk') for en ticker."""
-    try:
-        tk = yf.Ticker(ticker)
-        hist = tk.history(period="10d", interval="1d", prepost=False, auto_adjust=False)
-        if hist.empty:
-            return None
-        # Drop dagens igangværende bar — samme logik som fetch_live_quotes
-        et_today = pd.Timestamp.now(tz="America/New_York").date()
-        last_ts = pd.Timestamp(hist.index[-1])
-        last_date_et = (last_ts.tz_convert("America/New_York").date()
-                        if last_ts.tz is not None else last_ts.date())
-        if last_date_et >= et_today:
-            hist = hist.iloc[:-1]
-        closes = hist["Close"].dropna()
-        return float(closes.iloc[-1]) if len(closes) else None
-    except Exception:
-        return None
-
-
-def _slice_intraday_to_regular(prices, volumes):
-    """For 1D-grafen: behold kun bars i regular hours (09:30-16:00 ET) på
-    seneste handelsdag. Falder tilbage til seneste afsluttede session i
-    pre-market — samme logik som fetch_intraday_sparklines."""
-    if prices.empty:
-        return prices, volumes
-    idx = pd.DatetimeIndex(prices.index)
-    if idx.tz is None:
-        idx = idx.tz_localize("UTC")
-    idx_et = idx.tz_convert("America/New_York")
-    et_dates = idx_et.normalize()
-    et_minutes = idx_et.hour * 60 + idx_et.minute
-    regular_mask = (et_minutes >= 9 * 60 + 30) & (et_minutes < 16 * 60)
-    weekday_mask = et_dates.weekday < 5
-    candidate_dates = et_dates[regular_mask & weekday_mask]
-    if len(candidate_dates) == 0:
-        return prices.iloc[0:0], volumes.iloc[0:0] if not volumes.empty else volumes
-    target = candidate_dates.max()
-    mask = (et_dates == target) & regular_mask
-    keep = pd.Series(mask, index=prices.index)
-    return prices[keep], (volumes[keep[volumes.index]] if not volumes.empty else volumes)
 
 
 def _segment_by_sign(xs, ys, baseline=0.0):

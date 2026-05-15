@@ -157,45 +157,71 @@ def render_portfolio_overview(
         # Byg ekspanderede serier med interpolerede zero-crossings
         _ex_list = []
         _ey_list = []
+        _ev_list = []  # porteføljeværdi (DKK) pr. punkt, 1:1 med _ex_list/_ey_list
+
+        _v_arr = np.asarray(v_per.values, dtype=float)
+
         for _i in range(len(_y_arr)):
             _ex_list.append(_x_arr[_i])
             _ey_list.append(_y_arr[_i])
+            _ev_list.append(_v_arr[_i])
+
             if _i + 1 < len(_y_arr):
                 _y0, _y1 = _y_arr[_i], _y_arr[_i + 1]
                 if (_y0 > 0 and _y1 < 0) or (_y0 < 0 and _y1 > 0):
                     _t0 = pd.Timestamp(_x_arr[_i]).value
                     _t1 = pd.Timestamp(_x_arr[_i + 1]).value
                     _frac = _y0 / (_y0 - _y1)
-                    _ex_list.append(pd.Timestamp(int(_t0 + _frac * (_t1 - _t0))).to_numpy())
+
+                    # Interpolér timestamp for zero-crossing
+                    _x0 = pd.Timestamp(int(_t0 + _frac * (_t1 - _t0))).to_numpy()
+
+                    # Interpolér også porteføljeværdien ved samme fraktion,
+                    # så customdata passer til de indsatte 0%-punkter.
+                    _v0, _v1 = _v_arr[_i], _v_arr[_i + 1]
+                    _v_zero = _v0 + _frac * (_v1 - _v0)
+
+                    _ex_list.append(_x0)
                     _ey_list.append(0.0)
+                    _ev_list.append(_v_zero)
 
         # Split i kontinuerlige sign-segmenter
         _segments = []
         if len(_ex_list) > 0:
             _cur_sign = None
             _cur_seg = []
-            for _x, _y in zip(_ex_list, _ey_list):
+
+            for _x, _y, _v in zip(_ex_list, _ey_list, _ev_list):
                 if _y > 0:
                     _new_sign = "pos"
                 elif _y < 0:
                     _new_sign = "neg"
                 else:
                     _new_sign = None  # zero — ambivalent, tilhører begge
+
                 if _new_sign is None:
+                    # Luk eksisterende segment (hvis noget) og start nyt omkring nulpunktet
                     if _cur_seg:
-                        _cur_seg.append((_x, _y))
+                        _cur_seg.append((_x, _y, _v))
                         _segments.append((_cur_sign, _cur_seg))
-                    _cur_seg = [(_x, _y)]
-                    _cur_sign = None
+                        _cur_seg = [(_x, _y, _v)]
+                        _cur_sign = None
+                    else:
+                        _cur_seg = [(_x, _y, _v)]
+                        _cur_sign = None
+
                 elif _cur_sign is None or _cur_sign == _new_sign:
-                    _cur_seg.append((_x, _y))
+                    _cur_seg.append((_x, _y, _v))
                     _cur_sign = _new_sign
+
                 else:
+                    # Sign-skift: luk gammel segment og start ny
                     _segments.append((_cur_sign, _cur_seg))
-                    _cur_seg = [(_x, _y)]
+                    _cur_seg = [(_x, _y, _v)]
                     _cur_sign = _new_sign
-            if _cur_seg:
-                _segments.append((_cur_sign, _cur_seg))
+
+        if _cur_seg:
+            _segments.append((_cur_sign, _cur_seg))
 
         fig = go.Figure()
         for _sign, _seg in _segments:
@@ -203,6 +229,8 @@ def render_portfolio_overview(
                 continue
             _xs = [p[0] for p in _seg]
             _ys = [p[1] for p in _seg]
+            _vs = [p[2] for p in _seg]
+            _v_str = [f"{_da_num(v)} DKK" for v in _vs]
             if _sign == "neg":
                 _color = "#d32f2f"
                 _fill = "rgba(211,47,47,0.12)"
@@ -215,7 +243,8 @@ def render_portfolio_overview(
                 line=dict(color=_color, width=2.5),
                 fill="tozeroy",
                 fillcolor=_fill,
-                hovertemplate="<b>%{x|%d. %b %Y %H:%M}</b><br>Afkast: %{y:.2f}%<extra></extra>",
+                customdata=_v_str,
+                hovertemplate="<b>%{x\n%d. %b %Y %H:%M}</b><br>Afkast: %{y:.2f}%<br>Værdi: %{customdata}<extra></extra>",
                 showlegend=False,
             ))
         fig.add_hline(y=0, line_dash="dash", line_color="rgba(0,0,0,0.3)")

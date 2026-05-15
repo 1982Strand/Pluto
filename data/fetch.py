@@ -412,3 +412,37 @@ def fetch_period_reference_price(ticker: str, period_key: str):
         return float(closes[mask].iloc[-1])
 
     return float(closes.iloc[0])
+
+# ==========================================================
+# XLSX loader (ren Python — ingen Streamlit)
+# Cache-wrapperen med @st.cache_data ligger i data/cached.py
+# ==========================================================
+import pandas as pd
+
+
+def load_pluto_xlsx_raw(xlsx_path: str, _file_mtime: float):
+    """
+    Læs alle nødvendige Pluto-sheets fra XLSX.
+    _file_mtime bruges som cache-key i data/cached.py — ikke brugt her.
+    """
+    orders_df = pd.read_excel(xlsx_path, sheet_name="Orders", engine="openpyxl")
+    cash_df = pd.read_excel(xlsx_path, sheet_name="Cash overview", engine="openpyxl")
+    dkk_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - DKK account", engine="openpyxl")
+
+    try:
+        usd_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - USD account", engine="openpyxl")
+    except Exception:
+        usd_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
+
+    try:
+        eur_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - EUR account", engine="openpyxl")
+    except Exception:
+        eur_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
+
+    try:
+        positions_df = pd.read_excel(xlsx_path, sheet_name="Positions, Ultimo", engine="openpyxl")
+        positions_df.columns = positions_df.columns.str.strip()
+    except Exception:
+        positions_df = pd.DataFrame(columns=["Ticker", "Average entry price (asset currency)"])
+
+    return orders_df, cash_df, dkk_tx, usd_tx, eur_tx, positions_df

@@ -29,40 +29,13 @@ from views.history import render_history
 
 # ==========================================================
 # P1: Cached XLSX loader (hurtigere reruns)
+# Cache-dekoratoren ligger i data/cached.py (arkitekturreglen).
 # ==========================================================
-@st.cache_data(show_spinner=False)
-def _load_pluto_xlsx_cached(xlsx_path: str, file_mtime: float):
-    """
-    Læs alle nødvendige Pluto-sheets fra XLSX.
-    Cache-key inkluderer file_mtime, så cache invalideres automatisk ved ny upload.
-    """
-    orders_df = pd.read_excel(xlsx_path, sheet_name="Orders", engine="openpyxl")
-    cash_df = pd.read_excel(xlsx_path, sheet_name="Cash overview", engine="openpyxl")
-    dkk_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - DKK account", engine="openpyxl")
-
-    try:
-        usd_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - USD account", engine="openpyxl")
-    except Exception:
-        usd_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
-
-    try:
-        eur_tx = pd.read_excel(xlsx_path, sheet_name="Transactions - EUR account", engine="openpyxl")
-    except Exception:
-        eur_tx = pd.DataFrame(columns=["Date", "Description", "Amount"])
-
-    try:
-        positions_df = pd.read_excel(xlsx_path, sheet_name="Positions, Ultimo", engine="openpyxl")
-        positions_df.columns = positions_df.columns.str.strip()
-    except Exception:
-        positions_df = pd.DataFrame(columns=["Ticker", "Average entry price (asset currency)"])
-
-    return orders_df, cash_df, dkk_tx, usd_tx, eur_tx, positions_df
+from data.cached import load_pluto_xlsx_cached as _load_pluto_xlsx_cached
 
 
 def load_pluto_xlsx(xlsx_path: str):
-    """
-    Wrapper der giver stabil cache-key baseret på filens mtime.
-    """
+    """Wrapper der giver stabil cache-key baseret på filens mtime."""
     mtime = os.path.getmtime(xlsx_path)
     return _load_pluto_xlsx_cached(xlsx_path, mtime)
 
@@ -106,6 +79,7 @@ try:
 
     # --- Override seneste punkt med live-priser ---
     # Så Total porteføljeværdi, TWR og Aktieværdi alle bruger samme priskilde
+    _live_fx = {}  # Fallback: sikrer _live_fx altid er defineret (bruges i tab_history)
     try:
         _orders_pre = orders_df.copy()
         _orders_pre["Qty_Adj"] = np.where(
