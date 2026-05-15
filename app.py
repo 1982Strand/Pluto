@@ -8,7 +8,6 @@ Korrekt afkastberegning efter Plutos princip:
 """
 import os
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -21,6 +20,7 @@ inject_styles()
 # -------------------- IMPORTS --------------------
 from data.cached import fetch_live_quotes, fetch_live_fx_rates
 from analytics.portfolio import compute_portfolio_value_series, compute_deposits_dkk
+from analytics.holdings import active_positions, compute_live_stock_value
 from views.asset_detail import render_asset_detail
 from views.portfolio_overview import render_portfolio_overview
 from views.wallet import render_wallet
@@ -81,34 +81,15 @@ try:
     # Så Total porteføljeværdi, TWR og Aktieværdi alle bruger samme priskilde
     _live_fx = {}  # Fallback: sikrer _live_fx altid er defineret (bruges i tab_history)
     try:
-        _orders_pre = orders_df.copy()
-        _orders_pre["Qty_Adj"] = np.where(
-            _orders_pre["Side"] == "BUY", _orders_pre["Quantity"], -_orders_pre["Quantity"]
-        )
-        _active_pre = (
-            _orders_pre.groupby(["Ticker", "Asset currency"])
-            .agg(Qty_Adj=("Qty_Adj", "sum")).reset_index()
-        )
-        _active_pre = _active_pre[_active_pre["Qty_Adj"] > 0.001]
+        _active_pre = active_positions(orders_df)
         if not _active_pre.empty:
             _live_top = fetch_live_quotes(tuple(_active_pre["Ticker"].tolist()))
             _live_fx = fetch_live_fx_rates()
             _usd_now = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
             _eur_now = _live_fx.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
-            _live_aktier_dkk = 0.0
-            for _, _row in _active_pre.iterrows():
-                _q = _live_top.get(_row["Ticker"], {})
-                _p = _q.get("live")
-                if _p is None and _row["Ticker"] in prices.columns:
-                    _ser = prices[_row["Ticker"]].dropna()
-                    if len(_ser):
-                        _p = float(_ser.iloc[-1])
-                if _p is None:
-                    continue
-                _ccy_row = _row["Asset currency"]
-                _rate = _usd_now if _ccy_row == "USD" else (_eur_now if _ccy_row == "EUR" else 1.0)
-                _live_aktier_dkk += float(_row["Qty_Adj"]) * _p * _rate
-
+            _live_aktier_dkk = compute_live_stock_value(
+                _active_pre, prices, _live_top, _usd_now, _eur_now
+            )
             _cash_now_dkk = float(cash_value_total.iloc[-1]) if len(cash_value_total) else 0.0
             total_value = total_value.copy()
             stock_value = stock_value.copy()
@@ -124,34 +105,14 @@ try:
     # --- Routing: ?ticker=XXX åbner detalje-side ---
     _detail_ticker = st.query_params.get("ticker")
     if _detail_ticker:
-        _orders_rt = orders_df.copy()
-        _orders_rt["Qty_Adj"] = np.where(
-            _orders_rt["Side"] == "BUY", _orders_rt["Quantity"], -_orders_rt["Quantity"]
-        )
-        _orders_rt["DKK_Adj"] = np.where(
-            _orders_rt["Side"] == "BUY", _orders_rt["Notional, DKK"], -_orders_rt["Notional, DKK"]
-        )
-        _portfolio_rt = (
-            _orders_rt.groupby(["Ticker", "Asset currency"])
-            .agg(Qty_Adj=("Qty_Adj", "sum"), DKK_Adj=("DKK_Adj", "sum"))
-            .reset_index()
-        )
-        _active_rt = _portfolio_rt[_portfolio_rt["Qty_Adj"] > 0.001]
+        _active_rt = active_positions(orders_df)
         _live_fx_rt = fetch_live_fx_rates()
         _usd_rt = _live_fx_rt.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
         _eur_rt = _live_fx_rt.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
         _live_q_rt = fetch_live_quotes(tuple(_active_rt["Ticker"].tolist()))
-        _total_v_rt = 0.0
-        for _, _r_rt in _active_rt.iterrows():
-            _p_rt = _live_q_rt.get(_r_rt["Ticker"], {}).get("live")
-            if _p_rt is None and _r_rt["Ticker"] in prices.columns:
-                _ser_rt = prices[_r_rt["Ticker"]].dropna()
-                _p_rt = float(_ser_rt.iloc[-1]) if len(_ser_rt) else None
-            if _p_rt is None:
-                continue
-            _rate_rt = (_usd_rt if _r_rt["Asset currency"] == "USD"
-                        else (_eur_rt if _r_rt["Asset currency"] == "EUR" else 1.0))
-            _total_v_rt += float(_r_rt["Qty_Adj"]) * _p_rt * _rate_rt
+        _total_v_rt = compute_live_stock_value(
+            _active_rt, prices, _live_q_rt, _usd_rt, _eur_rt
+        )
         _cash_rt = (
             float(cash_df[cash_df["Currency"] == "DKK"]["End cash balance"].sum())
             + float(cash_df[cash_df["Currency"] == "USD"]["End cash balance"].sum()) * _usd_rt

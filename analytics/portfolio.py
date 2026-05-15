@@ -369,6 +369,74 @@ def cumulative_return_series(values, cashflows, dates, cashflow_fracs=None):
     return pd.Series(return_dkk, index=dates), pd.Series(twr_pct, index=dates)
 
 
+def split_signed_return_segments(x_arr, y_arr, v_arr):
+    """Opdel en afkastserie i kontinuerlige fortegns-segmenter.
+
+    Indsætter interpolerede nulpunkter ved hver fortegns-krydsning, så en
+    fill-graf ikke bløder mellem grøn (positiv) og rød (negativ).
+
+    x_arr: tidsstempler, y_arr: afkast (%), v_arr: porteføljeværdi (DKK).
+    Returnerer liste af (sign, segment) hvor sign er "pos"/"neg"/None og
+    segment er en liste af (x, y, v)-tupler. Tegningen ligger i view-laget.
+    """
+    y_arr = np.asarray(y_arr, dtype=float)
+    v_arr = np.asarray(v_arr, dtype=float)
+
+    ex_list, ey_list, ev_list = [], [], []
+    for i in range(len(y_arr)):
+        ex_list.append(x_arr[i])
+        ey_list.append(y_arr[i])
+        ev_list.append(v_arr[i])
+
+        if i + 1 < len(y_arr):
+            y0, y1 = y_arr[i], y_arr[i + 1]
+            if (y0 > 0 and y1 < 0) or (y0 < 0 and y1 > 0):
+                t0 = pd.Timestamp(x_arr[i]).value
+                t1 = pd.Timestamp(x_arr[i + 1]).value
+                frac = y0 / (y0 - y1)
+                x0 = pd.Timestamp(int(t0 + frac * (t1 - t0))).to_numpy()
+                v0, v1 = v_arr[i], v_arr[i + 1]
+                v_zero = v0 + frac * (v1 - v0)
+                ex_list.append(x0)
+                ey_list.append(0.0)
+                ev_list.append(v_zero)
+
+    segments = []
+    cur_sign = None
+    cur_seg = []
+    for x, y, v in zip(ex_list, ey_list, ev_list):
+        if y > 0:
+            new_sign = "pos"
+        elif y < 0:
+            new_sign = "neg"
+        else:
+            new_sign = None  # zero — ambivalent, tilhører begge
+
+        if new_sign is None:
+            # Luk eksisterende segment og start nyt omkring nulpunktet
+            if cur_seg:
+                cur_seg.append((x, y, v))
+                segments.append((cur_sign, cur_seg))
+                cur_seg = [(x, y, v)]
+                cur_sign = None
+            else:
+                cur_seg = [(x, y, v)]
+                cur_sign = None
+        elif cur_sign is None or cur_sign == new_sign:
+            cur_seg.append((x, y, v))
+            cur_sign = new_sign
+        else:
+            # Fortegns-skift: luk gammelt segment og start nyt
+            segments.append((cur_sign, cur_seg))
+            cur_seg = [(x, y, v)]
+            cur_sign = new_sign
+
+    if cur_seg:
+        segments.append((cur_sign, cur_seg))
+
+    return segments
+
+
 def compute_portfolio_return_dynamics(
     total_value: pd.Series,
     cashflows: pd.Series,
