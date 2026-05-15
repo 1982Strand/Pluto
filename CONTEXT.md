@@ -23,7 +23,7 @@ Kernen og cache-laget kan genbruges hvis appen flyttes væk fra Streamlit — ku
 
 ```
 Regler:
-  1. Ingen st.-kald må forekomme udenfor views/-mappen
+  1. Ingen st.-kald i kerne-laget. st. må kun forekomme i views/, app.py (indgangspunkt) og styles.py (CSS-injektion)
   2. data/fetch.py er ren Python — ingen Streamlit overhovedet
   3. Al @st.cache_data er samlet i data/cached.py
   4. Alle kald til cachede funktioner går via data.cached, ikke data.fetch
@@ -53,7 +53,7 @@ Regler:
 ### data/ — Datahentning og -håndtering
 | Fil | Ansvar |
 |-----|--------|
-| `data/fetch.py` | **Ren Python, ingen Streamlit.** yfinance-kald: `fetch_price_history`, `fetch_price_history_intraday`, `fetch_live_quotes`, `fetch_live_fx_rates`, `fetch_ticker_meta`, `fetch_ticker_quote_info`, `fetch_intraday_sparklines`, `load_pluto_xlsx_raw`. Ingen dekoratorer. |
+| `data/fetch.py` | **Ren Python, ingen Streamlit.** yfinance-kald: `fetch_price_history`, `fetch_price_history_intraday`, `fetch_live_quotes`, `fetch_live_fx_rates`, `fetch_ticker_meta`, `fetch_ticker_quote_info`, `fetch_intraday_sparklines`, `fetch_asset_history`, `fetch_period_reference_price`, `load_pluto_xlsx_raw`. Ingen dekoratorer. |
 | `data/cached.py` | **Eneste sted med `@st.cache_data`.** Importerer alle funktioner fra `data.fetch` og eksponerer cachede versioner med samme navne og TTL-værdier. `load_pluto_xlsx_cached` bor her. Skift framework: ret kun denne fil. |
 | `data/deposits.py` | Gemmer og henter tidspunkter for indbetalinger i `deposit_times.json`. Funktioner: `load_deposit_times`, `save_deposit_times`, `_deposit_key`, `_time_to_frac`. Ingen Streamlit. |
 | `data/market_status.py` | `get_us_market_status`, `get_eu_market_status`, `get_market_status_for_currency` — returnerer (kode, label, emoji, baggrundsfarve). Ingen Streamlit. |
@@ -61,7 +61,7 @@ Regler:
 ### analytics/ — Kerneberegninger (100% Streamlit-fri)
 | Fil | Ansvar |
 |-----|--------|
-| `analytics/portfolio.py` | `compute_portfolio_value_series`, `compute_portfolio_value_series_intraday`, `compute_deposits_dkk`, `cashflow_timeline`, `cumulative_return_series`, `slice_period`, `build_holdings_matrix`, `compute_ticker_lifecycle`. Importerer fra `data.cached`. |
+| `analytics/portfolio.py` | `compute_portfolio_value_series`, `compute_portfolio_value_series_intraday`, `compute_deposits_dkk`, `cashflow_timeline`, `cumulative_return_series`, `compute_portfolio_return_dynamics`, `compute_grouped_portfolio_return_dynamics`, `slice_period`, `build_holdings_matrix`, `compute_ticker_lifecycle`. Importerer fra `data.cached`. |
 
 ### views/ — Alt Streamlit-UI
 | Fil | Ansvar |
@@ -110,6 +110,8 @@ Detalje-siden åbnes via query parameter `?ticker=XXX`. `app.py` tjekker `st.que
 | `fetch_ticker_meta` | 24 timer |
 | `fetch_ticker_quote_info` | 1 time |
 | `fetch_intraday_sparklines` | 5 min |
+| `fetch_asset_history` | 5 min |
+| `fetch_period_reference_price` | 1 time |
 
 **Data-filer der ikke er på GitHub:**
 - `last_statement.xlsx` og `Account_statement.xlsx` — personlige finansdata, i `.gitignore`

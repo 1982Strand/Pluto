@@ -47,6 +47,10 @@ def render_portfolio_overview(
 ) -> None:
     """Renderer Portefølje-tabben."""
 
+    # Defineres her så dynamik-grafen nederst altid kan genbruge den —
+    # aktietabellen fylder den ud, hvis der er aktive positioner.
+    ticker_meta = {}
+
     # --- Markedsstatus øverst til højre ---
     ms_code, ms_label, ms_emoji, ms_bg = get_us_market_status()
 
@@ -1033,7 +1037,7 @@ def render_portfolio_overview(
             )
 
     else:
-        if "active" in locals() and active is not None and not active.empty:
+        if not active.empty:
             dyn_active_tickers = active["Ticker"].dropna().unique().tolist()
         else:
             dyn_active_tickers = []
@@ -1041,7 +1045,7 @@ def render_portfolio_overview(
         if not dyn_active_tickers:
             st.info("Der er ingen aktive positioner at gruppere.")
         else:
-            if "ticker_meta" in locals() and isinstance(ticker_meta, dict):
+            if ticker_meta:
                 dyn_ticker_meta = ticker_meta
             else:
                 with st.spinner("Henter sektor- og aktivklasse-info..."):
