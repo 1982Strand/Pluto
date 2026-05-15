@@ -9,9 +9,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import PLUTO_FX_SPREAD_RATE
 from utils.formatting import (
-    _safe_float, _da_num, format_currency, format_quantity,
+    _da_num, format_currency, format_quantity,
     _flatten_html, color_change_str,
 )
 from data.cached import (
@@ -24,6 +23,10 @@ from analytics.portfolio import (
     compute_portfolio_value_series_intraday, cashflow_timeline,
     compute_portfolio_return_dynamics,
     compute_grouped_portfolio_return_dynamics,
+    split_signed_return_segments,
+)
+from analytics.holdings import (
+    compute_portfolio_costs, compute_pnl_summary, compute_holdings_breakdown,
 )
 from utils.svg_charts import _make_sparkline_data_url
 from views.breakdown import render_breakdown, render_drilldown, _lighten_rgb
@@ -151,81 +154,14 @@ def render_portfolio_overview(
 
     with col_chart:
         # --- Graf: Afkast over tid ---
-        # Grøn for positive segmenter, rød for negative. Vi bygger én trace per
-        # kontinuerlig segment (split ved hver zero-crossing) for at undgå at
-        # Plotlys fill="tozeroy" bleder mellem segmenter.
+        # Grøn for positive segmenter, rød for negative — én trace pr.
+        # kontinuerligt fortegns-segment, så fill="tozeroy" ikke bløder.
         st.write("")
-        _y_arr = np.asarray(ret_pct_series.values, dtype=float)
-        _x_arr = pd.DatetimeIndex(d_per).to_numpy()
-
-        # Byg ekspanderede serier med interpolerede zero-crossings
-        _ex_list = []
-        _ey_list = []
-        _ev_list = []  # porteføljeværdi (DKK) pr. punkt, 1:1 med _ex_list/_ey_list
-
-        _v_arr = np.asarray(v_per.values, dtype=float)
-
-        for _i in range(len(_y_arr)):
-            _ex_list.append(_x_arr[_i])
-            _ey_list.append(_y_arr[_i])
-            _ev_list.append(_v_arr[_i])
-
-            if _i + 1 < len(_y_arr):
-                _y0, _y1 = _y_arr[_i], _y_arr[_i + 1]
-                if (_y0 > 0 and _y1 < 0) or (_y0 < 0 and _y1 > 0):
-                    _t0 = pd.Timestamp(_x_arr[_i]).value
-                    _t1 = pd.Timestamp(_x_arr[_i + 1]).value
-                    _frac = _y0 / (_y0 - _y1)
-
-                    # Interpolér timestamp for zero-crossing
-                    _x0 = pd.Timestamp(int(_t0 + _frac * (_t1 - _t0))).to_numpy()
-
-                    # Interpolér også porteføljeværdien ved samme fraktion,
-                    # så customdata passer til de indsatte 0%-punkter.
-                    _v0, _v1 = _v_arr[_i], _v_arr[_i + 1]
-                    _v_zero = _v0 + _frac * (_v1 - _v0)
-
-                    _ex_list.append(_x0)
-                    _ey_list.append(0.0)
-                    _ev_list.append(_v_zero)
-
-        # Split i kontinuerlige sign-segmenter
-        _segments = []
-        if len(_ex_list) > 0:
-            _cur_sign = None
-            _cur_seg = []
-
-            for _x, _y, _v in zip(_ex_list, _ey_list, _ev_list):
-                if _y > 0:
-                    _new_sign = "pos"
-                elif _y < 0:
-                    _new_sign = "neg"
-                else:
-                    _new_sign = None  # zero — ambivalent, tilhører begge
-
-                if _new_sign is None:
-                    # Luk eksisterende segment (hvis noget) og start nyt omkring nulpunktet
-                    if _cur_seg:
-                        _cur_seg.append((_x, _y, _v))
-                        _segments.append((_cur_sign, _cur_seg))
-                        _cur_seg = [(_x, _y, _v)]
-                        _cur_sign = None
-                    else:
-                        _cur_seg = [(_x, _y, _v)]
-                        _cur_sign = None
-
-                elif _cur_sign is None or _cur_sign == _new_sign:
-                    _cur_seg.append((_x, _y, _v))
-                    _cur_sign = _new_sign
-
-                else:
-                    # Sign-skift: luk gammel segment og start ny
-                    _segments.append((_cur_sign, _cur_seg))
-                    _cur_seg = [(_x, _y, _v)]
-                    _cur_sign = _new_sign
-
-        if _cur_seg:
-            _segments.append((_cur_sign, _cur_seg))
+        _segments = split_signed_return_segments(
+            pd.DatetimeIndex(d_per).to_numpy(),
+            ret_pct_series.values,
+            v_per.values,
+        )
 
         fig = go.Figure()
         for _sign, _seg in _segments:
@@ -323,11 +259,6 @@ def render_portfolio_overview(
     )
     active = portfolio[portfolio["Qty_Adj"] > 0.001].copy()
 
-    avg_entry_by_ticker = {}
-    if "Ticker" in positions_df.columns and "Average entry price (asset currency)" in positions_df.columns:
-        for _, row in positions_df.iterrows():
-            avg_entry_by_ticker[row["Ticker"]] = _safe_float(row["Average entry price (asset currency)"])
-
     if active.empty:
         st.info("Ingen aktive positioner.")
     else:
@@ -356,153 +287,57 @@ def render_portfolio_overview(
             code, _label, emoji, _bg = get_market_status_for_currency(asset_ccy)
             return f"{emoji} {session_short_map.get(code, '—')}"
 
+        breakdown = compute_holdings_breakdown(
+            orders_df, positions_df, prices, live_quotes, ticker_meta, cash_df,
+            usd_dkk_now, eur_dkk_now, usd_dkk, eur_dkk, afkast_periode, ytd_start,
+        )
+        positions = breakdown["positions"]
+        total_v = breakdown["total_value_dkk"]
+        grand_total = breakdown["grand_total_dkk"]
+        all_holdings = breakdown["all_holdings"]
+        per_sector = breakdown["buckets"]["sector"]
+        per_asset_class = breakdown["buckets"]["asset_class"]
+        per_currency = breakdown["buckets"]["currency"]
+        per_region = breakdown["buckets"]["region"]
+        per_country = breakdown["buckets"]["country"]
+
+        afkast_kr_label = "Afkast (kr.)" if afkast_periode == "Maks" else f"Afkast {afkast_periode} (kr.)"
+        afkast_pct_label = "Pos. afkast" if afkast_periode == "Maks" else f"Pos. afkast {afkast_periode}"
+
         rows = []
-        total_v = 0.0
-        per_sector = {}
-        per_asset_class = {}
-        per_currency = {}
-        per_region = {}
-        per_country = {}
-        all_holdings = []
+        for pos in positions:
+            t = pos["ticker"]
+            ccy = pos["ccy"]
 
-        for _, s in active.iterrows():
-            t = s["Ticker"]
-            q = live_quotes.get(t, {})
-            ccy = s["Asset currency"]
-
-            fallback_close = None
-            if t in prices.columns:
-                ser = prices[t].dropna()
-                if len(ser) >= 1:
-                    fallback_close = float(ser.iloc[-1])
-
-            # 'Sidste luk' = den seneste KOMPLETTE regular session close.
-            # I regular hours (today_close = None): = gårsdagens close (prev_close)
-            # I after-hours/overnight/pre-market: = dagens close (today_close).
-            _today_c = q.get("today_close")
-            _prev_c = q.get("prev_close")
-            _prev_prev_c = q.get("prev_prev_close")
-            if _today_c is not None:
-                sidste_luk = _today_c
-                forrige_luk = _prev_c
-            else:
-                sidste_luk = _prev_c
-                forrige_luk = _prev_prev_c
-            live = q.get("live")
-
-            if sidste_luk is None:
-                sidste_luk = fallback_close
-            if live is None:
-                live = sidste_luk
-
-            if sidste_luk is None or live is None:
-                continue
-
-            if forrige_luk is not None and forrige_luk != 0:
-                d_yest = sidste_luk - forrige_luk
-                d_yest_pct = d_yest / forrige_luk * 100
-                d_yest_str = f"{_da_num(d_yest, signed=True)} ({_da_num(d_yest_pct, signed=True)}%)"
+            if pos["d_yest"] is not None:
+                d_yest_str = f"{_da_num(pos['d_yest'], signed=True)} ({_da_num(pos['d_yest_pct'], signed=True)}%)"
             else:
                 d_yest_str = "—"
 
-            if sidste_luk:
-                d_now = live - sidste_luk
-                d_now_pct = d_now / sidste_luk * 100
-                d_now_str = f"{_da_num(d_now, signed=True)} ({_da_num(d_now_pct, signed=True)}%)"
+            if pos["d_now"] is not None:
+                d_now_str = f"{_da_num(pos['d_now'], signed=True)} ({_da_num(pos['d_now_pct'], signed=True)}%)"
             else:
                 d_now_str = "—"
 
-            if ccy == "USD":
-                rate = usd_dkk_now
-            elif ccy == "EUR":
-                rate = eur_dkk_now
-            else:
-                rate = 1.0
-
-            gak_pluto = avg_entry_by_ticker.get(t)
-            if gak_pluto is not None:
-                gak_valuta = gak_pluto
-            else:
-                gak_valuta = (s["DKK_Adj"] / s["Qty_Adj"]) / rate if rate else 0
-            vaerdi_dkk = s["Qty_Adj"] * live * rate
-            pos_pct = (vaerdi_dkk - s["DKK_Adj"]) / s["DKK_Adj"] * 100 if s["DKK_Adj"] else 0
-            total_v += vaerdi_dkk
-
-            # Periodisk afkast (kr. + %) afhængigt af afkast_periode-vælger
-            if afkast_periode == "1D":
-                if sidste_luk and live is not None and sidste_luk > 0:
-                    pnl_pos_pct = (live - sidste_luk) / sidste_luk * 100
-                    pnl_pos_dkk = float(s["Qty_Adj"]) * (live - sidste_luk) * rate
-                else:
-                    pnl_pos_pct = 0.0
-                    pnl_pos_dkk = 0.0
-            elif afkast_periode == "YTD":
-                first_buy = orders_df[orders_df["Ticker"] == t]["TradeDate"].min()
-                used_jan1 = False
-                if pd.notnull(first_buy) and first_buy < ytd_start and t in prices.columns:
-                    jan1_close = prices[t].asof(ytd_start)
-                    if pd.notnull(jan1_close) and float(jan1_close) > 0 and live is not None:
-                        jan1_close_f = float(jan1_close)
-                        pnl_pos_pct = (live - jan1_close_f) / jan1_close_f * 100
-                        pnl_pos_dkk = float(s["Qty_Adj"]) * (live - jan1_close_f) * rate
-                        used_jan1 = True
-                if not used_jan1:
-                    # Position købt efter 1. jan eller manglende jan1-pris → fallback til "siden køb"
-                    pnl_pos_dkk = vaerdi_dkk - float(s["DKK_Adj"])
-                    pnl_pos_pct = pos_pct
-            else:  # Maks
-                pnl_pos_dkk = vaerdi_dkk - float(s["DKK_Adj"])
-                pnl_pos_pct = pos_pct
-
-            pos_entry = {
-                "ticker": t,
-                "name": s["Name"],
-                "qty": float(s["Qty_Adj"]),
-                "value_dkk": vaerdi_dkk,
-                "invested_dkk": float(s["DKK_Adj"]),
-                "gain_dkk": vaerdi_dkk - float(s["DKK_Adj"]),
-                "pos_pct": pos_pct,
-            }
-            all_holdings.append(pos_entry)
-
-            meta = ticker_meta.get(t, {})
-
-            def _add_to(bucket_dict, key):
-                b = bucket_dict.setdefault(
-                    key, {"count": 0, "value_dkk": 0.0, "invested_dkk": 0.0, "positions": []}
-                )
-                b["count"] += 1
-                b["value_dkk"] += vaerdi_dkk
-                b["invested_dkk"] += float(s["DKK_Adj"])
-                b["positions"].append(pos_entry)
-
-            _add_to(per_sector, meta.get("sector", "Andet"))
-            _add_to(per_asset_class, meta.get("asset_class", "Andet"))
-            _add_to(per_currency, ccy)
-            _add_to(per_region, meta.get("region", "Andet"))
-            _add_to(per_country, meta.get("country", "Andet"))
-
-            afkast_kr_label = "Afkast (kr.)" if afkast_periode == "Maks" else f"Afkast {afkast_periode} (kr.)"
-            afkast_pct_label = "Pos. afkast" if afkast_periode == "Maks" else f"Pos. afkast {afkast_periode}"
-
             # Sparkline: regular-hours intraday-graf for seneste handelsdag
-            _spark_vals = sparklines_map.get(t, [])
-            _spark_url = _make_sparkline_data_url(_spark_vals, ref_value=forrige_luk)
+            _spark_url = _make_sparkline_data_url(
+                sparklines_map.get(t, []), ref_value=pos["forrige_luk"]
+            )
 
             rows.append({
-                "Navn": s["Name"][:32],
+                "Navn": pos["name"][:32],
                 "Ticker": t,
                 "🔍": f"?ticker={t}",
                 "1D": _spark_url,
-                "Antal": format_quantity(s["Qty_Adj"]),
-                "GAK": format_currency(gak_valuta, ccy),
-                "Sidste luk": format_currency(sidste_luk, ccy),
+                "Antal": format_quantity(pos["qty"]),
+                "GAK": format_currency(pos["gak_valuta"], ccy),
+                "Sidste luk": format_currency(pos["sidste_luk"], ccy),
                 "Δ sidste luk": d_yest_str,
-                "Aktuel": format_currency(live, ccy),
+                "Aktuel": format_currency(pos["live"], ccy),
                 "Δ aktuel": f"{d_now_str} {session_cell_for(ccy)}",
-                "Værdi (DKK)": format_currency(vaerdi_dkk, "DKK"),
-                afkast_kr_label: f"{_da_num(pnl_pos_dkk, signed=True)} kr.",
-                afkast_pct_label: f"{_da_num(pnl_pos_pct, signed=True)}%",
+                "Værdi (DKK)": format_currency(pos["vaerdi_dkk"], "DKK"),
+                afkast_kr_label: f"{_da_num(pos['pnl_pos_dkk'], signed=True)} kr.",
+                afkast_pct_label: f"{_da_num(pos['pnl_pos_pct'], signed=True)}%",
             })
 
         df_disp = pd.DataFrame(rows)
@@ -553,43 +388,21 @@ def render_portfolio_overview(
         )
         total_i = active["DKK_Adj"].sum()
 
-        # ----- Beregn omkostninger (kurtage + FX-spread) og realiseret afkast -----
-        # Pluto's prismodel er fast: kurtage 0,10% direkte fra XLSX "Commission",
-        # FX-spread 0,15% af "Notional, DKK" på USD/EUR-handler.
-        total_commission_dkk = 0.0
-        total_fx_spread_dkk = 0.0
-        for _, _ord in orders_df.iterrows():
-            _comm = _safe_float(_ord.get("Commission (account currency)"))
-            if _comm and _comm != 0:
-                _acc = _ord.get("Account currency")
-                if _acc == "USD":
-                    _r = usd_dkk_now or 6.85
-                elif _acc == "EUR":
-                    _r = eur_dkk_now or 7.46
-                else:
-                    _r = 1.0
-                total_commission_dkk += _comm * _r
+        # ----- Omkostninger (kurtage + FX-spread) og realiseret afkast -----
+        costs = compute_portfolio_costs(orders_df, usd_dkk_now, eur_dkk_now)
+        total_commission_dkk = costs["commission_dkk"]
+        total_fx_spread_dkk = costs["fx_spread_dkk"]
+        total_costs_dkk = costs["total_dkk"]
 
-            # FX-spread: 0,15% af Notional, DKK for ikke-DKK handler (BUYS+SELLS)
-            _ac = _ord.get("Asset currency")
-            if _ac in ("USD", "EUR"):
-                _n_dkk = _safe_float(_ord.get("Notional, DKK"))
-                if _n_dkk:
-                    total_fx_spread_dkk += abs(_n_dkk) * PLUTO_FX_SPREAD_RATE
-
-        total_costs_dkk = total_commission_dkk + total_fx_spread_dkk
-
-        # Cash til realiseret-beregning
         _cash_real_now = float(cash_value_total.iloc[-1]) if len(cash_value_total) else 0.0
-        unrealized_pnl = total_v - total_i
-        realized_all_in = total_i + _cash_real_now - total_deposits
-        # Pure realized = realized minus costs (så omkostninger vises separat)
-        realized_pnl = realized_all_in + total_costs_dkk
-        # Reelt investeret = nettoindskud minus betalte omkostninger
-        reelt_investeret = total_deposits - total_costs_dkk
-
-        unrealized_pct = (unrealized_pnl / total_i * 100) if total_i else 0
-        realized_pct = (realized_pnl / total_deposits * 100) if total_deposits else 0
+        pnl = compute_pnl_summary(
+            total_v, total_i, _cash_real_now, total_deposits, total_costs_dkk
+        )
+        unrealized_pnl = pnl["unrealized_pnl"]
+        unrealized_pct = pnl["unrealized_pct"]
+        realized_pnl = pnl["realized_pnl"]
+        realized_pct = pnl["realized_pct"]
+        reelt_investeret = pnl["reelt_investeret"]
 
         st.write("")
         k1, k2, k3, k4 = st.columns(4)
@@ -621,52 +434,6 @@ def render_portfolio_overview(
             "*Urealiseret afkast* = aktuel værdi minus kostbasis af aktuelle positioner (relativ til kostbasis). "
             "*Realiseret afkast* = trading-P/L fra lukkede/delvist solgte positioner — eksklusiv omkostninger (relativ til nettoindskud)."
         )
-
-        # ----- Cash-håndtering: tilføj cash til relevante buckets -----
-        usd_dkk_rate = float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85
-        eur_dkk_rate = float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46
-        cash_currency_meta = [
-            ("DKK", "Danske Kroner", 1.0),
-            ("USD", "US Dollar", usd_dkk_rate),
-            ("EUR", "Euro", eur_dkk_rate),
-        ]
-        cash_entries = []
-        for cur, cur_name, rate in cash_currency_meta:
-            bal = cash_df[cash_df["Currency"] == cur]["End cash balance"].sum()
-            bal_dkk = float(bal) * rate
-            if bal_dkk > 0.01:
-                cash_entries.append({
-                    "ticker": cur,
-                    "name": cur_name,
-                    "qty": float(bal),
-                    "value_dkk": bal_dkk,
-                    "invested_dkk": bal_dkk,  # cash = no gain
-                    "gain_dkk": 0.0,
-                    "pos_pct": 0.0,
-                    "hide_zero_gain": True,
-                })
-
-        # Tilføj cash til Aktivklasser (én samlet "Kontanter"-bucket), Valutaer (per ccy)
-        if cash_entries:
-            cash_total = sum(c["value_dkk"] for c in cash_entries)
-            per_asset_class["Kontanter"] = {
-                "count": len(cash_entries),
-                "value_dkk": cash_total,
-                "invested_dkk": cash_total,
-                "positions": cash_entries[:],
-            }
-            for ce in cash_entries:
-                cur = ce["ticker"]
-                cb = per_currency.setdefault(
-                    cur, {"count": 0, "value_dkk": 0.0, "invested_dkk": 0.0, "positions": []}
-                )
-                cb["count"] += 1
-                cb["value_dkk"] += ce["value_dkk"]
-                cb["invested_dkk"] += ce["invested_dkk"]
-                cb["positions"].append(ce)
-                all_holdings.append(ce)
-
-        grand_total = total_v + sum(c["value_dkk"] for c in cash_entries)
 
         # ----- Alle beholdninger (donut + flad liste) -----
         if all_holdings:

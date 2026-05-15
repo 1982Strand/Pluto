@@ -61,7 +61,8 @@ Regler:
 ### analytics/ — Kerneberegninger (100% Streamlit-fri)
 | Fil | Ansvar |
 |-----|--------|
-| `analytics/portfolio.py` | `compute_portfolio_value_series`, `compute_portfolio_value_series_intraday`, `compute_deposits_dkk`, `cashflow_timeline`, `cumulative_return_series`, `compute_portfolio_return_dynamics`, `compute_grouped_portfolio_return_dynamics`, `slice_period`, `build_holdings_matrix`, `compute_ticker_lifecycle`. Importerer fra `data.cached`. |
+| `analytics/portfolio.py` | `compute_portfolio_value_series`, `compute_portfolio_value_series_intraday`, `compute_deposits_dkk`, `cashflow_timeline`, `cumulative_return_series`, `split_signed_return_segments`, `compute_portfolio_return_dynamics`, `compute_grouped_portfolio_return_dynamics`, `slice_period`, `build_holdings_matrix`, `compute_ticker_lifecycle`. Importerer fra `data.cached`. |
+| `analytics/holdings.py` | Beregning bag "Mine Aktier"-sektionen: `compute_portfolio_costs`, `compute_pnl_summary`, `compute_holdings_breakdown` (positioner + fordelings-buckets + kontanter), `active_positions`, `compute_live_stock_value`. Ren Python — alle priser/quotes/meta modtages som parametre. |
 
 ### views/ — Alt Streamlit-UI
 | Fil | Ansvar |
@@ -125,6 +126,7 @@ Detalje-siden åbnes via query parameter `?ticker=XXX`. `app.py` tjekker `st.que
 XLSX-fil
  └── app.py (indlæsning + rensning)
      ├── analytics/portfolio.py (TWR, porteføljeværdi-serier, ticker-livscyklus, dynamik i porteføljeafkast)
+     ├── analytics/holdings.py (omkostninger, P/L, holdings-fordelinger, live-aktieværdi)
      │   └── data/cached.py (cachede yfinance-kald)
      │       └── data/fetch.py (rene yfinance-funktioner)
      └── views/
