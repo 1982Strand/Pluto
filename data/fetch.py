@@ -243,7 +243,8 @@ def fetch_ticker_quote_info(ticker):
     Cached i 1 time. Returnerer dict med nøgler:
     volume, average_volume, day_low, day_high, open, fifty_two_week_low,
     fifty_two_week_high, market_cap, trailing_pe, trailing_eps,
-    target_mean_price, beta, exchange, isin, long_name, website.
+    target_mean_price, beta, exchange, isin, long_name, website,
+    regular_market_time, post_market_time, pre_market_time.
     """
     out = {
         "volume": None, "average_volume": None,
@@ -253,6 +254,8 @@ def fetch_ticker_quote_info(ticker):
         "target_mean_price": None,
         "beta": None, "exchange": None, "isin": None,
         "long_name": None, "website": None,
+        "regular_market_time": None, "post_market_time": None,
+        "pre_market_time": None,
     }
     try:
         info = yf.Ticker(ticker).info or {}
@@ -276,6 +279,9 @@ def fetch_ticker_quote_info(ticker):
     out["isin"] = info.get("isin") or None
     out["long_name"] = info.get("longName") or info.get("shortName") or None
     out["website"] = info.get("website") or None
+    out["regular_market_time"] = info.get("regularMarketTime")
+    out["post_market_time"] = info.get("postMarketTime")
+    out["pre_market_time"] = info.get("preMarketTime")
     return out
     
 def fetch_intraday_sparklines(tickers_tuple):

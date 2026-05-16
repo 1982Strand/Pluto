@@ -21,6 +21,117 @@ from data.cached import (
 from data.market_status import get_market_status_for_currency
 from analytics.portfolio import slice_period, cumulative_return_series
 
+
+def _fmt_time_2tz(unix_ts):
+    """Unix-sekunder -> 'HH:MM EDT (HH:MM CEST)' — US-børstid + dansk tid."""
+    if not unix_ts:
+        return ""
+    t = pd.Timestamp(int(unix_ts), unit="s", tz="UTC")
+    et = t.tz_convert("America/New_York")
+    cph = t.tz_convert("Europe/Copenhagen")
+    return (
+        f"{et.strftime('%H:%M')} {et.strftime('%Z')} "
+        f"({cph.strftime('%H:%M')} {cph.strftime('%Z')})"
+    )
+
+
+def _add_extended_hours_markers(fig, price_x, y_lo, y_hi):
+    """Markér extended hours på intraday-pris-grafen.
+
+    Gråtoner extended-hours-perioderne let, tegner stiplede lodrette linjer
+    ved regular-session-grænserne (09:30 og 16:00 ET) for hver handelsdag i
+    data, og placerer én "Premarket"- og én "After-hours"-tekstboks på den
+    seneste session. price_x er grafens x-værdier som ET tz-naive
+    DatetimeIndex; y_lo/y_hi er grafens y-range.
+
+    Gråtoning og linjer tegnes som scatter-traces (ikke add_vrect/add_vline,
+    der er upålidelige på dato-akser i subplots)."""
+    px = pd.DatetimeIndex(price_x)
+    if len(px) == 0:
+        return
+
+    days = sorted(set(px.normalize()))
+    pre_windows, post_windows = [], []
+    line_x = []
+
+    for day in days:
+        open_t = day + pd.Timedelta(hours=9, minutes=30)
+        close_t = day + pd.Timedelta(hours=16)
+        end_t = day + pd.Timedelta(hours=20)
+
+        pre_mask = (px >= day) & (px < open_t)
+        reg_mask = (px >= open_t) & (px < close_t)
+        post_mask = (px >= close_t) & (px < end_t)
+
+        has_pre = bool(pre_mask.any())
+        has_regular = bool(reg_mask.any())
+        has_post = bool(post_mask.any())
+
+        # Linje kun ved en grænse med data på begge sider
+        if has_pre and has_regular:
+            line_x.append(open_t)
+        if has_regular and has_post:
+            line_x.append(close_t)
+
+        # Felterne klippes til faktiske data-punkter, så de aldrig spænder
+        # ind i det rangebreak-skjulte interval (20:00-04:00 ET) — ellers
+        # renderer Plotly dem forkert for de midterste dage.
+        if has_pre:
+            pre_windows.append((px[pre_mask].min(), open_t))
+        if has_post:
+            post_windows.append((close_t, px[post_mask].max()))
+
+    # Let gråtoning af extended-hours-perioderne. Tegnes som go.Bar — samme
+    # trace-type som volumen-panelet, der renderer pålideligt på denne
+    # dato-akse med rangebreaks. (fill="toself" svigtede for de midterste
+    # felter.) Lav opacitet, så pris-linjen kun påvirkes svagt.
+    windows = pre_windows + post_windows
+    if windows:
+        centers = [w[0] + (w[1] - w[0]) / 2 for w in windows]
+        widths = [(w[1] - w[0]).total_seconds() * 1000 for w in windows]
+        fig.add_trace(
+            go.Bar(
+                x=centers, y=[y_hi - y_lo] * len(windows),
+                base=y_lo, width=widths,
+                marker=dict(color="rgba(120,120,135,0.07)", line=dict(width=0)),
+                hoverinfo="skip", showlegend=False,
+            ),
+            row=1, col=1,
+        )
+
+    # Alle lodrette linjer i én trace, adskilt af None
+    if line_x:
+        xs, ys = [], []
+        for t in line_x:
+            xs += [t, t, None]
+            ys += [y_lo, y_hi, None]
+        fig.add_trace(
+            go.Scatter(
+                x=xs, y=ys, mode="lines",
+                line=dict(color="rgba(0,0,0,0.35)", width=1, dash="dot"),
+                hoverinfo="skip", showlegend=False,
+            ),
+            row=1, col=1,
+        )
+
+    def _label(window, text):
+        start, end = window
+        mid = start + (end - start) / 2
+        fig.add_annotation(
+            x=mid, y=y_hi, text=text, showarrow=False,
+            row=1, col=1, yanchor="top",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="rgba(0,0,0,0.15)", borderwidth=1, borderpad=3,
+            font=dict(size=11, color="#666"),
+        )
+
+    # Kun én label af hver type — placeret på den seneste session
+    if pre_windows:
+        _label(pre_windows[-1], "Premarket")
+    if post_windows:
+        _label(post_windows[-1], "After-hours")
+
+
 def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
                         usd_dkk, eur_dkk, total_value, cashflows, cashflow_fracs,
                         grand_total, total_v, all_active_tickers):
@@ -140,8 +251,8 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     today_close_val = quote.get("today_close")
 
     # Bestem hvilke priser der skal vises baseret på markeds-session
-    def _price_box_html(price, ref, context_label):
-        """Byg én pris-blok (label + stor pris + Δ vs ref)."""
+    def _price_box_html(price, ref, context_label, time_str=""):
+        """Byg én pris-blok (label + stor pris + Δ vs ref + tidsstempel)."""
         if price is None:
             return ""
         if ref is not None and ref != 0:
@@ -158,6 +269,10 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             )
         else:
             delta_part = ""
+        time_part = (
+            f"<div style='font-size:12px; color:#999; margin-top:6px;'>{time_str}</div>"
+            if time_str else ""
+        )
         return (
             f"<div>"
             f"  <div style='font-size:13px; color:#888; margin-bottom:4px;'>{context_label}</div>"
@@ -165,28 +280,35 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             f"    {ccy_sym} {_da_num(price)}"
             f"  </div>"
             f"  {delta_part}"
+            f"  {time_part}"
             f"</div>"
         )
 
+    # Tidsstempler (US-børstid + dansk tid) til pris-blokkene
+    _reg_str = _fmt_time_2tz(info.get("regular_market_time"))
+    _ext_candidates = [t for t in (info.get("post_market_time"),
+                                   info.get("pre_market_time")) if t]
+    _ext_str = _fmt_time_2tz(max(_ext_candidates)) if _ext_candidates else ""
+
     if sess_code == "regular":
         # Regular session: én pris (live), Δ vs forrige lukkepris
-        main_box = _price_box_html(live, prev_close, "Aktuel pris (markedet åbent)")
+        main_box = _price_box_html(live, prev_close, "Aktuel pris (markedet åbent)", _reg_str)
         ext_box = ""
     elif today_close_val is not None:
         # Efter dagens regular close (samme dag): venstre = dagens close,
         # højre = nuværende extended-hours live
-        main_box = _price_box_html(today_close_val, prev_close, "Dagens lukkepris (16:00 ET)")
+        main_box = _price_box_html(today_close_val, prev_close, "Dagens lukkepris (16:00 ET)", _reg_str)
         if live is not None and abs(live - today_close_val) > 0.001:
-            ext_box = _price_box_html(live, today_close_val, sess_label)
+            ext_box = _price_box_html(live, today_close_val, sess_label, _ext_str)
         else:
             ext_box = ""
     else:
         # Pre-market / overnight (efter midnat) / weekend:
         # venstre = forrige lukkepris, højre = nuværende live (hvis afviger)
-        main_box = _price_box_html(prev_close, prev_prev, "Forrige lukkepris")
+        main_box = _price_box_html(prev_close, prev_prev, "Forrige lukkepris", _reg_str)
         if (live is not None and prev_close is not None
                 and abs(live - prev_close) > 0.001):
-            ext_box = _price_box_html(live, prev_close, sess_label)
+            ext_box = _price_box_html(live, prev_close, sess_label, _ext_str)
         else:
             ext_box = ""
 
@@ -370,6 +492,20 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         else:
             price_x = price_idx_orig
 
+        # Tooltip: ET-tidszone + dansk tid pr. punkt (kun intraday)
+        tz_customdata = None
+        if is_intraday and price_idx_orig.tz is not None:
+            _et = price_idx_orig.tz_convert("America/New_York")
+            _cph = price_idx_orig.tz_convert("Europe/Copenhagen")
+            tz_customdata = [
+                f"{e.strftime('%Z')} ({c.strftime('%H:%M')} {c.strftime('%Z')})"
+                for e, c in zip(_et, _cph)
+            ]
+            hover_fmt = (
+                f"<b>%{{x|%d. %b %Y, %H:%M}} %{{customdata}}</b>"
+                f"<br>Pris: {ccy_sym} %{{y:,.2f}}<extra></extra>"
+            )
+
         if not det_volumes.empty:
             vol_idx_orig = pd.DatetimeIndex(det_volumes.index)
             if is_intraday and vol_idx_orig.tz is not None:
@@ -400,6 +536,7 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
                 line=dict(color=line_color, width=2),
                 fill="tozeroy",
                 fillcolor=fill_rgba,
+                customdata=tz_customdata,
                 hovertemplate=hover_fmt,
                 showlegend=False,
             ),
@@ -476,6 +613,16 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
                 ]
             fig_det.update_xaxes(rangebreaks=rangebreaks, row=1, col=1)
             fig_det.update_xaxes(rangebreaks=rangebreaks, row=2, col=1)
+
+            # Ingen auto-range-padding — grafen starter præcis ved data
+            _x0, _x1 = price_x.min(), price_x.max()
+            fig_det.update_xaxes(range=[_x0, _x1], row=1, col=1)
+            fig_det.update_xaxes(range=[_x0, _x1], row=2, col=1)
+
+        if is_intraday and include_extended:
+            _add_extended_hours_markers(
+                fig_det, price_x, y_min_data - y_pad, y_max_data + y_pad
+            )
 
         st.plotly_chart(fig_det, use_container_width=True)
 
