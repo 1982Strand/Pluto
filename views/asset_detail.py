@@ -335,7 +335,7 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     else:
         # Pre-market / overnight (efter midnat) / weekend:
         # venstre = forrige lukkepris, højre = nuværende live (hvis afviger)
-        main_box = _price_box_html(prev_close, prev_prev, "Forrige lukkepris", _reg_str)
+        main_box = _price_box_html(prev_close, prev_prev, "Seneste lukkepris", _reg_str)
         if (live is not None and prev_close is not None
                 and abs(live - prev_close) > 0.001):
             ext_box = _price_box_html(live, prev_close, sess_label, _ext_str)
@@ -438,7 +438,23 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         # End-prisen er live (seneste tick fra fetch_live_quotes), så også
         # uafhængig af toggle. Begge dele giver samme procent som Yahoo/MSN.
         if det_period == "1D":
-            ref_price = prev_close
+            # Find den rigtige forrige-dags-close ved at slaa op i prices-DataFrame.
+            # Det er mere robust end prev_close/prev_prev fra live-quote, som opfoerer
+            # sig forskelligt i weekender, extended hours og under regular session.
+            # Strategi: find hvilken dag 1D-grafen viser (foerste timestamp i det_prices),
+            # og returner det seneste close-punkt FOER den dag fra prices[ticker].
+            _ref1d = None
+            if not det_prices.empty and ticker in prices.columns:
+                _first = pd.Timestamp(det_prices.index[0])
+                if _first.tz is not None:
+                    _first = _first.tz_convert("America/New_York").tz_localize(None)
+                _chart_day = _first.normalize()
+                _hist = prices[ticker].dropna()
+                _hist_norm = _hist.index.normalize() if hasattr(_hist.index, "normalize") else _hist.index
+                _before = _hist[_hist_norm < _chart_day]
+                if not _before.empty:
+                    _ref1d = float(_before.iloc[-1])
+            ref_price = _ref1d if (_ref1d and _ref1d > 0) else prev_close
         elif det_period == "Maks":
             ref_price = None  # Brug første pris i grafen
         else:
@@ -488,8 +504,9 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             baseline_label = f"GAK {ccy_sym} {_da_num(baseline)}"
             show_baseline_line = True
         elif det_period == "1D":
-            baseline = prev_close if prev_close else period_start_price
-            baseline_label = f"Sidste luk {ccy_sym} {_da_num(baseline)}"
+            # Brug samme reference som ref_price (allerede beregnet ovenfor)
+            baseline = period_start_price if period_start_price > 0 else (prev_close or 0)
+            baseline_label = f"Forrige luk {ccy_sym} {_da_num(baseline)}"
             show_baseline_line = True
         else:
             baseline = period_start_price
@@ -552,33 +569,104 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             row_heights=[0.75, 0.25], vertical_spacing=0.05,
         )
 
-        # Én linje-trace med fill ned til chart-bunden (tozeroy). Farven
-        # bestemmes af periode-retningen — grøn hvis prisen samlet steg,
-        # rød hvis den faldt. Y-aksen begrænses manuelt til data-range,
-        # så det usynlige fill-areal under bundlinjen ikke trækker chartet ud.
+        # Yahoo Finance-stil farvning:
+        # - 1D: split grøn/rød ved baseline (prev_close). Fill går fra
+        #        kurslinje ned til baseline — ikke til y=0. Linjen er ogsaa
+        #        farvet segment for segment.
+        # - Øvrige perioder: enkelt farve baseret paa samlet perioderetning,
+        #        fill til bunden (tozeroy, men y-akse begrænser til data-range).
         line_color = "#2e7d32" if period_is_up else "#d32f2f"
         fill_rgba = "rgba(46,125,50,0.15)" if period_is_up else "rgba(211,47,47,0.15)"
 
-        fig_det.add_trace(
-            go.Scatter(
-                x=price_x, y=ys,
-                mode="lines",
-                line=dict(color=line_color, width=2),
-                fill="tozeroy",
-                fillcolor=fill_rgba,
-                customdata=tz_customdata,
-                hovertemplate=hover_fmt,
-                showlegend=False,
-            ),
-            row=1, col=1,
-        )
+        if det_period == "1D" and show_baseline_line:
+            # Split-farvet 1D-graf (Yahoo Finance-stil)
+            segments = _segment_by_sign(list(price_x), list(ys), baseline=y_baseline)
+
+            # Hover-format: ET-tidszone (tz_customdata ikke tilgaengeligt per segment)
+            _hover_seg = (
+                f"<b>%{{x|%d. %b %Y %H:%M}} ET</b>"
+                f"<br>Pris: {ccy_sym} %{{y:,.2f}}<extra></extra>"
+            )
+
+            # Trin 1: Fill-polygoner (tegnes bag linjen).
+            # Hvert segment lukkes som polygon: pris frem + baseline tilbage.
+            for seg_sign, seg_pts in segments:
+                if not seg_pts or seg_sign is None:
+                    continue
+                sx = [p[0] for p in seg_pts]
+                sy = [p[1] for p in seg_pts]
+                f_rgba = ("rgba(46,125,50,0.15)" if seg_sign == "pos"
+                          else "rgba(211,47,47,0.15)")
+                poly_x = sx + sx[::-1] + [sx[0]]
+                poly_y = sy + [y_baseline] * len(sx) + [sy[0]]
+                fig_det.add_trace(
+                    go.Scatter(
+                        x=poly_x, y=poly_y,
+                        mode="lines",
+                        line=dict(width=0, color="rgba(0,0,0,0)"),
+                        fill="toself", fillcolor=f_rgba,
+                        hoverinfo="skip", showlegend=False,
+                    ),
+                    row=1, col=1,
+                )
+
+            # Trin 2: Farvede linje-segmenter ovenpå fill.
+            for seg_sign, seg_pts in segments:
+                if not seg_pts:
+                    continue
+                sx = [p[0] for p in seg_pts]
+                sy = [p[1] for p in seg_pts]
+                s_color = ("#2e7d32" if seg_sign == "pos"
+                           else ("#d32f2f" if seg_sign == "neg" else "#888888"))
+                fig_det.add_trace(
+                    go.Scatter(
+                        x=sx, y=sy,
+                        mode="lines",
+                        line=dict(color=s_color, width=2),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ),
+                    row=1, col=1,
+                )
+
+            # Enkelt usynlig hover-trace der daekker al data — giver noejagtigt
+            # ét tooltip-punkt pr. x-position (undgaar dubletter fra segmenter).
+            fig_det.add_trace(
+                go.Scatter(
+                    x=list(price_x), y=list(ys),
+                    mode="lines",
+                    line=dict(width=0, color="rgba(0,0,0,0)"),
+                    hovertemplate=_hover_seg,
+                    showlegend=False,
+                ),
+                row=1, col=1,
+            )
+        else:
+            # Enkelt-farvet linje for alle ikke-1D perioder
+            fig_det.add_trace(
+                go.Scatter(
+                    x=price_x, y=ys,
+                    mode="lines",
+                    line=dict(color=line_color, width=2),
+                    fill="tozeroy",
+                    fillcolor=fill_rgba,
+                    customdata=tz_customdata,
+                    hovertemplate=hover_fmt,
+                    showlegend=False,
+                ),
+                row=1, col=1,
+            )
 
         # Stiplet baseline med label (kun for 1D og Maks)
         if show_baseline_line:
             fig_det.add_hline(
-                y=y_baseline, line_dash="dash", line_color="rgba(0,0,0,0.5)",
+                y=y_baseline, line_dash="dash", line_color="rgba(0,0,0,0.4)",
                 annotation_text=baseline_label, annotation_position="top right",
                 annotation_font_size=11, row=1, col=1,
+                annotation_bgcolor="rgba(255,255,255,0.88)",
+                annotation_bordercolor="rgba(0,0,0,0.18)",
+                annotation_borderwidth=1,
+                annotation_borderpad=4,
             )
 
         # Manuel y-akse range så fill="tozeroy" ikke presser y=0 ind i visningen.
