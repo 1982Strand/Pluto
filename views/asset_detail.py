@@ -197,11 +197,41 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     # =====================================================================
     # SEKTION 1: HEADER
     # =====================================================================
-    st.markdown(
-        '<a href="?" style="font-size:14px; color:#1976d2; text-decoration:none;">'
-        '← Tilbage til oversigt</a>',
-        unsafe_allow_html=True,
+
+    # --- Aktiv-navigator: rullemenu med bredde tilpasset det længste navn ---
+    _ticker_name_map = (
+        orders_df[orders_df["Ticker"].isin(all_active_tickers)]
+        [["Ticker", "Name"]]
+        .drop_duplicates("Ticker")
+        .assign(_label=lambda d: d["Name"] + "  (" + d["Ticker"] + ")")
+        .sort_values("_label")
+        .reset_index(drop=True)
     )
+    _labels = _ticker_name_map["_label"].tolist()
+    _tickers = _ticker_name_map["Ticker"].tolist()
+    _cur_idx = _tickers.index(ticker) if ticker in _tickers else 0
+
+    # Beregn kolonnebredde ud fra det længste label (ca. 8px pr. tegn + 80px til pil/padding).
+    # Streamlit wide-mode er ca. 1300px bred — oversæt til kolonnevægt ud af 10.
+    _max_chars = max((len(l) for l in _labels), default=30)
+    _target_px = max(220, _max_chars * 8 + 80)
+    _col_weight = round(_target_px / 1300 * 10, 1)
+    _spacer_weight = max(0.5, 10 - _col_weight)
+
+    _nav_col, _ = st.columns([_col_weight, _spacer_weight])
+    with _nav_col:
+        _selected_label = st.selectbox(
+            "Vælg aktiv",
+            options=_labels,
+            index=_cur_idx,
+            label_visibility="collapsed",
+        )
+
+    _selected_ticker = _tickers[_labels.index(_selected_label)]
+    if _selected_ticker != ticker:
+        st.query_params["ticker"] = _selected_ticker
+        st.rerun()
+
     st.write("")
 
     # Session-badge
