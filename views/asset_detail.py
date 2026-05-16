@@ -10,8 +10,14 @@ from utils.formatting import (
     _safe_float, _da_num, format_currency, format_big_number,
     format_quantity, _flatten_html, _CCY_SYMBOLS
 )
-from utils.svg_charts import _make_sparkline_data_url, _make_volume_bar_html, _make_range_bar_html
-from data.cached import fetch_live_quotes, fetch_live_fx_rates, fetch_ticker_quote_info, fetch_ticker_meta
+from utils.svg_charts import (
+    _make_sparkline_data_url, _make_volume_bar_html,
+    _make_range_bar_html, _make_performance_bars_html,
+)
+from data.cached import (
+    fetch_live_quotes, fetch_live_fx_rates, fetch_ticker_quote_info,
+    fetch_ticker_meta, fetch_performance,
+)
 from data.market_status import get_market_status_for_currency
 from analytics.portfolio import slice_period, cumulative_return_series
 
@@ -480,39 +486,84 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     # =====================================================================
     st.subheader("Markedsdata")
 
-    col_vol, col_day = st.columns(2)
-    with col_vol:
+    col_bars, col_perf = st.columns(2)
+    with col_bars:
         st.markdown(
             _flatten_html(_make_volume_bar_html(info["volume"], info["average_volume"])),
             unsafe_allow_html=True,
         )
-    with col_day:
         st.markdown(
             _flatten_html(_make_range_bar_html(
                 info["day_low"], info["day_high"],
-                marker_low=info["open"], marker_high=live,
-                marker_low_label="OPEN", marker_high_label="LAST",
+                marker_low=today_close_val, marker_high=info["open"],
+                marker_low_label="Luk", marker_high_label="Åbn",
                 bottom_label="DAY LOW/HIGH",
                 currency_symbol=ccy_sym, segment_fill=False,
+                track_color="#d6e4f0",
+            )),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            _flatten_html(_make_range_bar_html(
+                info["fifty_two_week_low"], info["fifty_two_week_high"],
+                marker_low=info["day_low"], marker_high=info["day_high"],
+                bottom_label="52 WEEK LOW/HIGH", segment_label="Dagens spænd",
+                currency_symbol=ccy_sym, segment_fill=True,
             )),
             unsafe_allow_html=True,
         )
 
-    st.markdown(
-        _flatten_html(_make_range_bar_html(
-            info["fifty_two_week_low"], info["fifty_two_week_high"],
-            marker_low=info["day_low"], marker_high=info["day_high"],
-            bottom_label="52 WEEK LOW/HIGH",
-            currency_symbol=ccy_sym, segment_fill=True,
-        )),
-        unsafe_allow_html=True,
-    )
+    with col_perf:
+        st.markdown(
+            "<div style='font-size:13px; font-weight:700; color:#888; "
+            "letter-spacing:0.5px; padding:10px 0 4px;'>PERFORMANCE</div>",
+            unsafe_allow_html=True,
+        )
+        _perf = fetch_performance(ticker)
+        _perf_rows = [
+            ("5 dage", _perf["5d"]),
+            ("1 måned", _perf["1m"]),
+            ("3 måneder", _perf["3m"]),
+            ("YTD", _perf["ytd"]),
+            ("1 år", _perf["1y"]),
+        ]
+        st.markdown(
+            _flatten_html(_make_performance_bars_html(_perf_rows)),
+            unsafe_allow_html=True,
+        )
 
     st.write("")
-    mc1, mc2, mc3 = st.columns(3)
-    mc1.metric("Market cap", format_big_number(info["market_cap"]) if info["market_cap"] else "—")
-    mc2.metric("P/E (TTM)", _da_num(info["trailing_pe"]) if info["trailing_pe"] else "—")
-    mc3.metric("EPS (TTM)", f"{ccy_sym} {_da_num(info['trailing_eps'])}" if info["trailing_eps"] else "—")
+    with st.expander("Nøgletal og selskabsinfo"):
+        _info_rows = [
+            ("Market cap", format_big_number(info["market_cap"]) if info["market_cap"] else "—"),
+            ("Beta (5Y Monthly)", _da_num(info["beta"]) if info["beta"] else "—"),
+            ("1 Year Target Estimate",
+             f"{ccy_sym} {_da_num(info['target_mean_price'])}" if info["target_mean_price"] else "—"),
+            ("EPS (TTM)", f"{ccy_sym} {_da_num(info['trailing_eps'])}" if info["trailing_eps"] else "—"),
+            ("P/E (TTM)", _da_num(info["trailing_pe"]) if info["trailing_pe"] else "—"),
+        ]
+        _info_html = "".join(
+            f"<tr>"
+            f"<td style='padding:6px 24px 6px 0; color:#888;'>{label}</td>"
+            f"<td style='padding:6px 0; font-weight:600;'>{value}</td>"
+            f"</tr>"
+            for label, value in _info_rows
+        )
+        _website = info.get("website")
+        if _website:
+            _info_html += (
+                f"<tr><td style='padding:6px 24px 6px 0; color:#888;'>Hjemmeside</td>"
+                f"<td style='padding:6px 0; font-weight:600;'>"
+                f"<a href='{_website}' target='_blank' rel='noopener'>{_website}</a>"
+                f"</td></tr>"
+            )
+        st.markdown(
+            _flatten_html(
+                f"<table style='font-size:14px; border-collapse:collapse;'>"
+                f"<tbody>{_info_html}</tbody></table>"
+            ),
+            unsafe_allow_html=True,
+        )
     st.write("---")
 
     # =====================================================================

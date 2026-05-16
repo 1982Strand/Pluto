@@ -242,14 +242,15 @@ def fetch_ticker_quote_info(ticker):
 
     Cached i 1 time. Returnerer dict med nøgler:
     volume, average_volume, day_low, day_high, open, fifty_two_week_low,
-    fifty_two_week_high, market_cap, trailing_pe, trailing_eps, beta,
-    exchange, isin, long_name, website.
+    fifty_two_week_high, market_cap, trailing_pe, trailing_eps,
+    target_mean_price, beta, exchange, isin, long_name, website.
     """
     out = {
         "volume": None, "average_volume": None,
         "day_low": None, "day_high": None, "open": None,
         "fifty_two_week_low": None, "fifty_two_week_high": None,
         "market_cap": None, "trailing_pe": None, "trailing_eps": None,
+        "target_mean_price": None,
         "beta": None, "exchange": None, "isin": None,
         "long_name": None, "website": None,
     }
@@ -269,6 +270,7 @@ def fetch_ticker_quote_info(ticker):
     out["market_cap"] = _safe_float(info.get("marketCap"))
     out["trailing_pe"] = _safe_float(info.get("trailingPE"))
     out["trailing_eps"] = _safe_float(info.get("trailingEps"))
+    out["target_mean_price"] = _safe_float(info.get("targetMeanPrice"))
     out["beta"] = _safe_float(info.get("beta"))
     out["exchange"] = info.get("fullExchangeName") or info.get("exchange") or None
     out["isin"] = info.get("isin") or None
@@ -412,6 +414,48 @@ def fetch_period_reference_price(ticker: str, period_key: str):
         return float(closes[mask].iloc[-1])
 
     return float(closes.iloc[0])
+
+
+def fetch_performance(ticker):
+    """Procentvis kursudvikling (ved seneste lukkekurs) over 5 dage, 1 og 3
+    måneder, år-til-dato og 1 år.
+
+    Returnerer dict[str -> float|None] med nøgler: 5d, 1m, 3m, ytd, 1y.
+    Beregnes ud fra split/udbytte-justerede daglige slutkurser."""
+    out = {"5d": None, "1m": None, "3m": None, "ytd": None, "1y": None}
+    try:
+        hist = yf.Ticker(ticker).history(period="2y", interval="1d", auto_adjust=True)
+    except Exception:
+        return out
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return out
+    closes = hist["Close"].dropna()
+    if len(closes) < 2:
+        return out
+
+    idx = pd.DatetimeIndex(closes.index)
+    idx_naive = idx.tz_localize(None) if idx.tz is not None else idx
+    closes = pd.Series(closes.values, index=idx_naive.normalize())
+
+    current = float(closes.iloc[-1])
+    today = pd.Timestamp.now().normalize()
+
+    def _pct_before(target_ts):
+        sub = closes[closes.index <= target_ts]
+        if sub.empty:
+            return None
+        ref = float(sub.iloc[-1])
+        if ref <= 0:
+            return None
+        return (current - ref) / ref * 100
+
+    out["5d"] = _pct_before(today - pd.Timedelta(days=7))
+    out["1m"] = _pct_before(today - pd.DateOffset(months=1))
+    out["3m"] = _pct_before(today - pd.DateOffset(months=3))
+    out["ytd"] = _pct_before(pd.Timestamp(year=today.year, month=1, day=1) - pd.Timedelta(days=1))
+    out["1y"] = _pct_before(today - pd.DateOffset(years=1))
+    return out
+
 
 # ==========================================================
 # XLSX loader (ren Python — ingen Streamlit)

@@ -124,12 +124,43 @@ def _make_sparkline_data_url(values, ref_value=None, width=120, height=30):
     return f"data:image/svg+xml;base64,{base64.b64encode(svg.encode('utf-8')).decode('ascii')}"
 
 
-def _make_volume_bar_html(volume, avg_volume, width_px=520):
-    """Vandret bar med 'X% VS AVG'-callout, MarketWatch-stil.
+def _callout_with_pointer(box_left, pointer_pct, text, bg_color,
+                          box_top=0, tri_top=21, point_down=True):
+    """MarketWatch-stil callout-boks med trekant der peger på baren.
+
+    box_left: boksens venstre kant i % (clampes af kalderen).
+    pointer_pct: trekantens præcise position i %.
+    point_down=True: boks over baren, trekant peger nedad; ellers boks
+    under baren, trekant peger opad."""
+    if point_down:
+        tri_borders = (
+            "border-left:6px solid transparent; "
+            "border-right:6px solid transparent; "
+            f"border-top:6px solid {bg_color};"
+        )
+    else:
+        tri_borders = (
+            "border-left:6px solid transparent; "
+            "border-right:6px solid transparent; "
+            f"border-bottom:6px solid {bg_color};"
+        )
+    return (
+        f"<div style='position:absolute; top:{box_top}px; left:{box_left:.1f}%; "
+        f"            background:{bg_color}; color:#fff; padding:3px 9px; "
+        f"            border-radius:3px; font-size:12px; font-weight:700; "
+        f"            white-space:nowrap;'>{text}</div>"
+        f"<div style='position:absolute; top:{tri_top}px; left:{pointer_pct:.1f}%; "
+        f"            width:0; height:0; transform:translateX(-6px); "
+        f"            {tri_borders}'></div>"
+    )
+
+
+def _make_volume_bar_html(volume, avg_volume):
+    """Vandret volumen-bar med 'X% VS AVG'-callout, MarketWatch-stil.
 
     Baren viser dagens volumen som procent af 65d-gennemsnittet (cap'et ved
-    150%, men callout-procenten er den faktiske). Returnerer HTML der kan
-    sendes til st.markdown(unsafe_allow_html=True)."""
+    150% visuelt, men callout-procenten er den faktiske). Returnerer HTML der
+    kan sendes til st.markdown(unsafe_allow_html=True)."""
     if not volume or not avg_volume or avg_volume <= 0:
         return (
             "<div style='color:#888; font-size:13px; padding:8px 0;'>"
@@ -137,39 +168,40 @@ def _make_volume_bar_html(volume, avg_volume, width_px=520):
         )
     pct = volume / avg_volume * 100
     fill_pct = min(pct, 150) / 150 * 100  # bar er 0..150% visuelt
-    callout_left = max(2, min(fill_pct - 6, 88))
+    box_left = max(0.0, min(fill_pct - 7.0, 82.0))
+    callout = _callout_with_pointer(
+        box_left, fill_pct, f"{_da_num(pct, decimals=0)}% VS AVG", "#1a1a1a"
+    )
     return (
-        f"<div style='width:100%; max-width:{width_px}px; padding:8px 0;'>"
-        f"  <div style='position:relative; height:38px;'>"
-        f"    <div style='position:absolute; top:18px; left:0; width:100%; "
-        f"                height:8px; background:#e0e0e0; border-radius:4px;'>"
+        "<div style='width:100%; padding:10px 0;'>"
+        "  <div style='position:relative; height:48px;'>"
+        f"    {callout}"
+        "    <div style='position:absolute; top:28px; left:0; width:100%; "
+        "                height:14px; background:#e6e6e6; border-radius:7px;'>"
         f"      <div style='height:100%; width:{fill_pct:.1f}%; "
-        f"                  background:#666; border-radius:4px;'></div>"
-        f"    </div>"
-        f"    <div style='position:absolute; top:0; left:{callout_left:.1f}%; "
-        f"                background:#000; color:#fff; padding:2px 8px; "
-        f"                border-radius:3px; font-size:11px; font-weight:600;'>"
-        f"      {_da_num(pct, decimals=0)}% VS AVG"
-        f"    </div>"
-        f"  </div>"
-        f"  <div style='display:flex; justify-content:space-between; "
-        f"              margin-top:6px; font-size:11px; color:#555;'>"
+        f"                  background:#7d7d7d; border-radius:7px;'></div>"
+        "    </div>"
+        "  </div>"
+        "  <div style='display:flex; justify-content:space-between; "
+        "              margin-top:8px; font-size:12px; color:#444;'>"
         f"    <span><strong>VOLUMEN:</strong> {format_big_number(volume)}</span>"
         f"    <span>↑ 65d-snit: <strong>{format_big_number(avg_volume)}</strong></span>"
-        f"  </div>"
-        f"</div>"
+        "  </div>"
+        "</div>"
     )
 
 
 def _make_range_bar_html(low, high, marker_low=None, marker_high=None,
-                        marker_low_label="OPEN", marker_high_label="LAST",
-                        bottom_label="DAY LOW/HIGH",
-                        currency_symbol="$", width_px=520, segment_fill=False):
-    """Vandret range-bar med to markører på en min..max skala.
+                         marker_low_label="OPEN", marker_high_label="LAST",
+                         bottom_label="DAY LOW/HIGH", segment_label=None,
+                         currency_symbol="$", segment_fill=False,
+                         track_color="#e8e8e8"):
+    """Vandret range-bar med markører på en min..max skala, MarketWatch-stil.
 
-    Hvis segment_fill=True: et farvet segment fra marker_low til marker_high
-    (bruges til 52w-range hvor 'DAY RANGE' fremhæves som et segment).
-    Ellers: to separate callout-tags på baren ved hver markør-position."""
+    segment_fill=True: en rød markør fra marker_low til marker_high med en
+    enkelt callout over baren (52w-baren; segment_label er callout-teksten).
+    Ellers (day-baren): marker_low som callout OVER baren og marker_high
+    UNDER baren, så de aldrig overlapper når kurserne ligger tæt."""
     if low is None or high is None or low >= high:
         return (
             "<div style='color:#888; font-size:13px; padding:8px 0;'>"
@@ -183,67 +215,103 @@ def _make_range_bar_html(low, high, marker_low=None, marker_high=None,
             return None
         return max(0.0, min(100.0, (v - low) / span * 100))
 
+    def _clamp(p):
+        return max(0.0, min(p - 7.0, 82.0))
+
     pos_lo = _pos(marker_low)
     pos_hi = _pos(marker_high)
 
     if segment_fill and pos_lo is not None and pos_hi is not None:
+        # 52w-bar: rød day-range-markør + enkelt callout over baren
         seg_left = min(pos_lo, pos_hi)
-        seg_width = abs(pos_hi - pos_lo)
+        seg_width = max(abs(pos_hi - pos_lo), 1.2)
         segment_html = (
-            f"<div style='position:absolute; top:18px; left:{seg_left:.1f}%; "
-            f"            width:{max(seg_width, 1.5):.1f}%; height:8px; "
+            f"<div style='position:absolute; top:24px; left:{seg_left:.1f}%; "
+            f"            width:{seg_width:.1f}%; height:22px; "
             f"            background:#c62828; border-radius:2px;'></div>"
         )
-        callouts_html = (
-            f"<div style='position:absolute; top:0; "
-            f"            left:{min(max(seg_left + seg_width / 2 - 6, 2), 88):.1f}%; "
-            f"            background:#000; color:#fff; padding:2px 8px; "
-            f"            border-radius:3px; font-size:11px; font-weight:600;'>"
-            f"  {bottom_label.upper()}"
-            f"</div>"
+        seg_center = seg_left + seg_width / 2
+        seg_text = segment_label if segment_label is not None else bottom_label.upper()
+        callouts_html = _callout_with_pointer(
+            _clamp(seg_center), seg_center, seg_text, "#1a1a1a",
         )
+        container_height = 50
+        track_top = 28
     else:
+        # day-bar: marker_low over baren, marker_high under baren
         segment_html = ""
         callouts = []
         if pos_lo is not None and marker_low is not None:
-            cl = max(2, min(pos_lo - 6, 88))
-            callouts.append(
-                f"<div style='position:absolute; top:0; left:{cl:.1f}%; "
-                f"            background:#1976d2; color:#fff; padding:2px 8px; "
-                f"            border-radius:3px; font-size:11px; font-weight:600; "
-                f"            white-space:nowrap;'>"
-                f"  {marker_low_label}: {currency_symbol}{_da_num(marker_low)}"
-                f"</div>"
-                f"<div style='position:absolute; top:14px; left:{pos_lo:.1f}%; "
-                f"            width:2px; height:16px; background:#1976d2;'></div>"
-            )
+            callouts.append(_callout_with_pointer(
+                _clamp(pos_lo), pos_lo,
+                f"{marker_low_label}: {currency_symbol}{_da_num(marker_low)}",
+                "#1976d2", box_top=0, tri_top=21, point_down=True,
+            ))
         if pos_hi is not None and marker_high is not None:
-            cl = max(2, min(pos_hi - 6, 88))
-            callouts.append(
-                f"<div style='position:absolute; top:0; left:{cl:.1f}%; "
-                f"            background:#000; color:#fff; padding:2px 8px; "
-                f"            border-radius:3px; font-size:11px; font-weight:600; "
-                f"            white-space:nowrap;'>"
-                f"  {marker_high_label}: {currency_symbol}{_da_num(marker_high)}"
-                f"</div>"
-                f"<div style='position:absolute; top:14px; left:{pos_hi:.1f}%; "
-                f"            width:2px; height:16px; background:#000;'></div>"
-            )
+            callouts.append(_callout_with_pointer(
+                _clamp(pos_hi), pos_hi,
+                f"{marker_high_label}: {currency_symbol}{_da_num(marker_high)}",
+                "#1a1a1a", box_top=51, tri_top=45, point_down=False,
+            ))
         callouts_html = "".join(callouts)
+        container_height = 74
+        track_top = 30
 
     return (
-        f"<div style='width:100%; max-width:{width_px}px; padding:14px 0 8px;'>"
-        f"  <div style='position:relative; height:38px;'>"
-        f"    <div style='position:absolute; top:18px; left:0; width:100%; "
-        f"                height:8px; background:#e8e8e8; border-radius:4px;'></div>"
+        "<div style='width:100%; padding:14px 0 8px;'>"
+        f"  <div style='position:relative; height:{container_height}px;'>"
+        f"    <div style='position:absolute; top:{track_top}px; left:0; "
+        f"                width:100%; height:14px; background:{track_color}; "
+        f"                border-radius:7px;'></div>"
         f"    {segment_html}"
         f"    {callouts_html}"
-        f"  </div>"
-        f"  <div style='display:flex; justify-content:space-between; "
-        f"              margin-top:6px; font-size:11px; color:#555;'>"
+        "  </div>"
+        "  <div style='display:flex; justify-content:space-between; "
+        "              margin-top:6px; font-size:12px; color:#444;'>"
         f"    <span>{currency_symbol}{_da_num(low)}</span>"
         f"    <span style='color:#888;'>{bottom_label}</span>"
         f"    <span>{currency_symbol}{_da_num(high)}</span>"
-        f"  </div>"
-        f"</div>"
+        "  </div>"
+        "</div>"
     )
+
+
+def _make_performance_bars_html(rows):
+    """MarketWatch-stil performance-liste: label, procent og en vandret bar
+    pr. periode. rows: liste af (label, pct) — pct kan være None ("—").
+    Bar-længde er relativ til den største |pct| i listen; grøn for positiv,
+    rød for negativ."""
+    vals = [abs(p) for _, p in rows if p is not None]
+    max_abs = max(vals) if vals else 1.0
+    if max_abs <= 0:
+        max_abs = 1.0
+
+    out = ["<div style='width:100%;'>"]
+    for label, pct in rows:
+        if pct is None:
+            value_cell = "<span style='color:#888;'>—</span>"
+            bar_fill = ""
+        else:
+            color = "#2e7d32" if pct >= 0 else "#d32f2f"
+            width = min(abs(pct) / max_abs * 100, 100)
+            value_cell = (
+                f"<span style='color:{color}; font-weight:700;'>"
+                f"{_da_num(pct, signed=True)}%</span>"
+            )
+            bar_fill = (
+                f"<div style='height:100%; width:{width:.1f}%; "
+                f"background:{color}; border-radius:3px;'></div>"
+            )
+        out.append(
+            f"<div style='display:flex; align-items:center; gap:10px; "
+            f"            padding:9px 0; border-bottom:1px solid #eee;'>"
+            f"  <span style='flex:1; font-size:12px; font-weight:700; "
+            f"               color:#555; letter-spacing:0.4px;'>{label}</span>"
+            f"  <span style='flex:0 0 78px; font-size:14px; "
+            f"               text-align:right;'>{value_cell}</span>"
+            f"  <div style='flex:0 0 42%; height:12px; background:#f0f0f0; "
+            f"              border-radius:3px;'>{bar_fill}</div>"
+            f"</div>"
+        )
+    out.append("</div>")
+    return "".join(out)

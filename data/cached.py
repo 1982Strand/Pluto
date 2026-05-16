@@ -14,6 +14,7 @@ from data.fetch import (
     fetch_intraday_sparklines as _fetch_intraday_sparklines,
     fetch_asset_history as _fetch_asset_history,
     fetch_period_reference_price as _fetch_period_reference_price,
+    fetch_performance as _fetch_performance,
 )
 
 fetch_price_history          = st.cache_data(ttl=1800, show_spinner=False)(_fetch_price_history)
@@ -29,6 +30,7 @@ fetch_intraday_sparklines    = st.cache_data(ttl=300,  show_spinner=False)(_fetc
 # - Referencepris: længere TTL (ændrer sig sjældent)
 fetch_asset_history = st.cache_data(ttl=300, show_spinner=False)(_fetch_asset_history)
 fetch_period_reference_price = st.cache_data(ttl=3600, show_spinner=False)(_fetch_period_reference_price)
+fetch_performance = st.cache_data(ttl=3600, show_spinner=False)(_fetch_performance)
 
 from data.fetch import load_pluto_xlsx_raw as _load_xlsx_raw
 
