@@ -164,31 +164,26 @@ def render_portfolio_overview(
         )
 
         fig = go.Figure()
-        # Intraday-perioder har tz-bevidste tidsstempler — vis US- + dansk tid
-        # i tooltip'en (samme stil som detaljesiden). Daglige perioder: kun dato.
+        # Tooltip-tid i dansk tidszone. Intraday-perioder viser dato + klokkeslæt;
+        # daglige perioder viser kun datoen.
         _is_intraday = period in ("1D", "1U", "1M")
+
+        def _fmt_x(x):
+            # Segmenterne blander tz-bevidste tidsstempler (rigtige punkter) og
+            # tz-naive nulpunkter (interpolerede) — håndtér hvert punkt for sig.
+            ts = pd.Timestamp(x)
+            if ts.tz is None:
+                ts = ts.tz_localize("UTC")
+            ts = ts.tz_convert("Europe/Copenhagen")
+            return ts.strftime("%d. %b %Y %H:%M") if _is_intraday else ts.strftime("%d. %b %Y")
+
         for _sign, _seg in _segments:
             if len(_seg) < 2:
                 continue
             _xs = [p[0] for p in _seg]
             _ys = [p[1] for p in _seg]
             _vs = [p[2] for p in _seg]
-            # split_signed_return_segments har strippet tz via to_numpy() —
-            # tz-bevidste indekser ender derfor som UTC.
-            _x_idx = pd.DatetimeIndex(_xs)
-            if _is_intraday:
-                if _x_idx.tz is None:
-                    _x_idx = _x_idx.tz_localize("UTC")
-                _et = _x_idx.tz_convert("America/New_York")
-                _cph = _x_idx.tz_convert("Europe/Copenhagen")
-                _lbls = [
-                    f"{e.strftime('%d. %b %Y')} · {e.strftime('%H:%M')} {e.strftime('%Z')} "
-                    f"({c.strftime('%H:%M')} {c.strftime('%Z')})"
-                    for e, c in zip(_et, _cph)
-                ]
-            else:
-                _lbls = [t.strftime("%d. %b %Y") for t in _x_idx]
-            _cd = [[lbl, f"{_da_num(v)} DKK"] for lbl, v in zip(_lbls, _vs)]
+            _cd = [[_fmt_x(x), f"{_da_num(v)} DKK"] for x, v in zip(_xs, _vs)]
             if _sign == "neg":
                 _color = "#d32f2f"
                 _fill = "rgba(211,47,47,0.12)"
