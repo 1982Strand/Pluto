@@ -513,13 +513,13 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             baseline_label = ""
             show_baseline_line = False
 
-        # Y-værdier afhænger af $/% toggle
+        # Y-værdier afhænger af $/% toggle (det_y_mode er altid "$";
+        # %-grenen er reststykke og skal blot ikke crashe).
         if det_y_mode == "%":
             ys = ((det_prices.values - period_start_price) / period_start_price) * 100 \
                  if period_start_price else np.zeros(len(det_prices))
             y_title = "Afkast i perioden (%)"
             y_tickformat = ".2f"
-            hover_fmt = "<b>%{x|%d. %b %Y %H:%M}</b><br>Afkast: %{y:.2f}%<extra></extra>"
             # Baseline-y i %-mode = afkast af baseline-prisen i forhold til periode-start
             y_baseline = ((baseline - period_start_price) / period_start_price * 100) \
                          if period_start_price else 0
@@ -527,7 +527,6 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             ys = det_prices.values
             y_title = f"Pris ({asset_ccy})"
             y_tickformat = ",.2f"
-            hover_fmt = f"<b>%{{x|%d. %b %Y %H:%M}}</b><br>Pris: {ccy_sym} %{{y:,.2f}}<extra></extra>"
             y_baseline = baseline
 
         # Konvertér x-akse til ET tz-naiv for intraday-perioder så rangebreaks
@@ -539,18 +538,47 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         else:
             price_x = price_idx_orig
 
-        # Tooltip: ET-tidszone + dansk tid pr. punkt (kun intraday)
-        tz_customdata = None
+        # --- Tooltip-customdata: Δ% + volumen (+ tidspunkt for intraday) ---
+        # %-ændring pr. punkt ift. periodens startpris — samme reference som
+        # periode-teksten over grafen.
+        if period_start_price:
+            _pct_arr = (det_prices.values - period_start_price) / period_start_price * 100
+        else:
+            _pct_arr = np.zeros(len(det_prices))
+        # Formatér i Python — customdata blander tekst og tal, så Plotlys
+        # ".2f" ellers ikke slår igennem på det numeriske felt.
+        _pct_strs = [_da_num(p, decimals=2, signed=True) for p in _pct_arr]
+        # Volumen alignet til pris-punkterne, formateret som kompakt streng.
+        if not det_volumes.empty:
+            _vol_aligned = det_volumes.reindex(det_prices.index)
+        else:
+            _vol_aligned = pd.Series(index=det_prices.index, dtype=float)
+        _vol_strs = [format_big_number(v) if pd.notna(v) else "—"
+                     for v in _vol_aligned]
+
         if is_intraday and price_idx_orig.tz is not None:
+            # Intraday: fuld US-børstid + dansk tid pr. punkt
             _et = price_idx_orig.tz_convert("America/New_York")
             _cph = price_idx_orig.tz_convert("Europe/Copenhagen")
-            tz_customdata = [
-                f"{e.strftime('%Z')} ({c.strftime('%H:%M')} {c.strftime('%Z')})"
+            _time_strs = [
+                f"{e.strftime('%H:%M')} {e.strftime('%Z')} "
+                f"({c.strftime('%H:%M')} {c.strftime('%Z')})"
                 for e, c in zip(_et, _cph)
             ]
+            hover_customdata = [
+                [t, p, v] for t, p, v in zip(_time_strs, _pct_strs, _vol_strs)
+            ]
             hover_fmt = (
-                f"<b>%{{x|%d. %b %Y, %H:%M}} %{{customdata}}</b>"
-                f"<br>Pris: {ccy_sym} %{{y:,.2f}}<extra></extra>"
+                f"<b>%{{customdata[0]}}</b>"
+                f"<br>Pris: {ccy_sym} %{{y:,.2f}} (%{{customdata[1]}}%)"
+                f"<br>Volumen: %{{customdata[2]}}<extra></extra>"
+            )
+        else:
+            # Daglige perioder: ingen tidslinje — datoen kommer fra overskriften
+            hover_customdata = [[p, v] for p, v in zip(_pct_strs, _vol_strs)]
+            hover_fmt = (
+                f"Pris: {ccy_sym} %{{y:,.2f}} (%{{customdata[0]}}%)"
+                f"<br>Volumen: %{{customdata[1]}}<extra></extra>"
             )
 
         if not det_volumes.empty:
@@ -581,12 +609,6 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         if det_period == "1D" and show_baseline_line:
             # Split-farvet 1D-graf (Yahoo Finance-stil)
             segments = _segment_by_sign(list(price_x), list(ys), baseline=y_baseline)
-
-            # Hover-format: ET-tidszone (tz_customdata ikke tilgaengeligt per segment)
-            _hover_seg = (
-                f"<b>%{{x|%d. %b %Y %H:%M}} ET</b>"
-                f"<br>Pris: {ccy_sym} %{{y:,.2f}}<extra></extra>"
-            )
 
             # Trin 1: Fill-polygoner (tegnes bag linjen).
             # Hvert segment lukkes som polygon: pris frem + baseline tilbage.
@@ -636,7 +658,8 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
                     x=list(price_x), y=list(ys),
                     mode="lines",
                     line=dict(width=0, color="rgba(0,0,0,0)"),
-                    hovertemplate=_hover_seg,
+                    customdata=hover_customdata,
+                    hovertemplate=hover_fmt,
                     showlegend=False,
                 ),
                 row=1, col=1,
@@ -650,7 +673,7 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
                     line=dict(color=line_color, width=2),
                     fill="tozeroy",
                     fillcolor=fill_rgba,
-                    customdata=tz_customdata,
+                    customdata=hover_customdata,
                     hovertemplate=hover_fmt,
                     showlegend=False,
                 ),
@@ -713,6 +736,10 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         fig_det.update_yaxes(title=y_title, tickformat=y_tickformat, row=1, col=1)
         fig_det.update_yaxes(title="Volumen", tickformat=",.0s", row=2, col=1)
 
+        # Den grå "x unified"-overskrift viser kun datoen — tidspunktet ligger
+        # i selve tooltippet, så datoen optræder præcis én gang.
+        fig_det.update_xaxes(hoverformat="%d. %b %Y", row=1, col=1)
+
         # Rangebreaks: skjul weekender og ikke-handelstimer på intraday-grafer,
         # så de små overnight-gaps ikke bliver til lange diagonale linjer.
         # - Regular only: skjul 16:00-09:30 ET
@@ -757,11 +784,19 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             _flatten_html(_make_volume_bar_html(info["volume"], info["average_volume"])),
             unsafe_allow_html=True,
         )
+        # Andet markørpunkt på day-baren: dagens lukkekurs efter close,
+        # seneste lukkekurs i weekend/overnight, ellers aktuel live-pris.
+        if today_close_val is not None:
+            day_marker, day_marker_label = today_close_val, "Luk"
+        elif sess_code == "regular":
+            day_marker, day_marker_label = live, "Aktuel"
+        else:
+            day_marker, day_marker_label = prev_close, "Luk"
         st.markdown(
             _flatten_html(_make_range_bar_html(
                 info["day_low"], info["day_high"],
-                marker_low=today_close_val, marker_high=info["open"],
-                marker_low_label="Luk", marker_high_label="Åbn",
+                marker_low=day_marker, marker_high=info["open"],
+                marker_low_label=day_marker_label, marker_high_label="Åbn",
                 bottom_label="DAY LOW/HIGH",
                 currency_symbol=ccy_sym, segment_fill=False,
                 track_color="#d6e4f0",
