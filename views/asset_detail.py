@@ -35,6 +35,22 @@ def _fmt_time_2tz(unix_ts):
     )
 
 
+def _pluto_cost_dkk(positions_df, ticker):
+    """Plutos kostbasis i DKK fra Positions, Ultimo-arket, ellers None.
+
+    Korrekt ved delvist solgte positioner — modsat sum(BUY)-sum(SELL) der
+    lækker realiseret gevinst ind i kostbasen.
+    """
+    if (positions_df is None
+            or "Ticker" not in positions_df.columns
+            or "Amount, DKK" not in positions_df.columns):
+        return None
+    row = positions_df[positions_df["Ticker"] == ticker]
+    if row.empty:
+        return None
+    return _safe_float(row.iloc[0]["Amount, DKK"])
+
+
 def _add_extended_hours_markers(fig, price_x, y_lo, y_hi):
     """Markér extended hours på intraday-pris-grafen.
 
@@ -148,17 +164,8 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     sub["Qty_Adj"] = np.where(sub["Side"] == "BUY", sub["Quantity"], -sub["Quantity"])
     sub["DKK_Adj"] = np.where(sub["Side"] == "BUY", sub["Notional, DKK"], -sub["Notional, DKK"])
     qty_total = float(sub["Qty_Adj"].sum())
-    cost_dkk = float(sub["DKK_Adj"].sum())
-    # Kostbasis: Plutos 'Amount, DKK' (korrekt ved delvist salg — modsat
-    # sum(BUY)-sum(SELL) der lækker realiseret gevinst ind i kostbasen).
-    if (positions_df is not None
-            and "Ticker" in positions_df.columns
-            and "Amount, DKK" in positions_df.columns):
-        _cb_row = positions_df[positions_df["Ticker"] == ticker]
-        if not _cb_row.empty:
-            _cb = _safe_float(_cb_row.iloc[0]["Amount, DKK"])
-            if _cb is not None:
-                cost_dkk = _cb
+    _cb = _pluto_cost_dkk(positions_df, ticker)
+    cost_dkk = _cb if _cb is not None else float(sub["DKK_Adj"].sum())
     asset_ccy = sub["Asset currency"].iloc[0]
     name = sub["Name"].iloc[0]
     first_buy = sub[sub["Side"] == "BUY"]["TradeDate"].min()
@@ -1082,7 +1089,8 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
         sub_at["Qty_Adj"] = np.where(sub_at["Side"] == "BUY", sub_at["Quantity"], -sub_at["Quantity"])
         sub_at["DKK_Adj"] = np.where(sub_at["Side"] == "BUY", sub_at["Notional, DKK"], -sub_at["Notional, DKK"])
         q_at = float(sub_at["Qty_Adj"].sum())
-        c_at = float(sub_at["DKK_Adj"].sum())
+        _cb_at = _pluto_cost_dkk(positions_df, at)
+        c_at = _cb_at if _cb_at is not None else float(sub_at["DKK_Adj"].sum())
         if q_at <= 0.001 or c_at <= 0:
             continue
         ac_at = sub_at["Asset currency"].iloc[0]
