@@ -1073,7 +1073,29 @@ def compute_ticker_lifecycle(
             if live_price is not None:
                 current_value_dkk = total_qty * live_price * fx_rate
 
-        # Simpelt afkast
+        # Kostbasis for resterende beholdning — Plutos 'Amount, DKK'.
+        # Korrekt ved delvist salg; fald tilbage til nettopengestrøm.
+        cost_basis_dkk = 0.0
+        if is_active:
+            if (positions_df is not None and not positions_df.empty
+                    and "Ticker" in positions_df.columns
+                    and "Amount, DKK" in positions_df.columns):
+                pos_row = positions_df[positions_df["Ticker"] == ticker]
+                if not pos_row.empty:
+                    cb = _safe_float(pos_row["Amount, DKK"].iloc[0])
+                    if cb is not None:
+                        cost_basis_dkk = cb
+            if cost_basis_dkk == 0.0:
+                cost_basis_dkk = buys_dkk - sells_dkk
+
+        # Afkast delt op: realiseret (solgte) + urealiseret (beholdning).
+        # realiseret + urealiseret == total_return_dkk pr. konstruktion.
+        cost_of_sold_dkk = buys_dkk - cost_basis_dkk
+        realized_gain_dkk = (sells_dkk - cost_of_sold_dkk) if sells_dkk > 0 else 0.0
+        realized_pct = (realized_gain_dkk / cost_of_sold_dkk * 100) if cost_of_sold_dkk > 0 else 0.0
+        unrealized_dkk = (current_value_dkk - cost_basis_dkk) if is_active else 0.0
+        unrealized_pct = (unrealized_dkk / cost_basis_dkk * 100) if cost_basis_dkk > 0 else 0.0
+
         total_return_dkk = current_value_dkk + sells_dkk - buys_dkk
         total_return_pct = (total_return_dkk / buys_dkk * 100) if buys_dkk > 0 else 0.0
 
@@ -1088,7 +1110,12 @@ def compute_ticker_lifecycle(
             "invested_dkk":      buys_dkk,
             "realized_dkk":      sells_dkk,
             "current_value_dkk": current_value_dkk,
+            "cost_basis_dkk":    cost_basis_dkk,
             "total_qty":         total_qty,
+            "realized_gain_dkk": realized_gain_dkk,
+            "realized_pct":      realized_pct,
+            "unrealized_dkk":    unrealized_dkk,
+            "unrealized_pct":    unrealized_pct,
             "total_return_dkk":  total_return_dkk,
             "total_return_pct":  total_return_pct,
             "orders":            sub,

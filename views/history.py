@@ -86,7 +86,6 @@ def _render_trade_table(
 def _render_lifecycle_table(entry: dict) -> None:
     """Renderer livscyklus-opsummering som HTML-tabel."""
     is_active = entry["is_active"]
-    ret_color = "#2e7d32" if entry["total_return_dkk"] >= 0 else "#d32f2f"
 
     def _row(label, value, color=None):
         color_style = f"color:{color}; font-weight:600;" if color else ""
@@ -114,15 +113,28 @@ def _render_lifecycle_table(entry: dict) -> None:
     rows_html += _row("Investeret", f"{_da_num(entry['invested_dkk'])} kr.")
     if entry["realized_dkk"] > 0:
         rows_html += _row("Realiseret (salgsbeløb)", f"{_da_num(entry['realized_dkk'])} kr.")
+    if is_active and entry["cost_basis_dkk"] > 0:
+        rows_html += _row("Kostbasis (beholdning)", f"{_da_num(entry['cost_basis_dkk'])} kr.")
     if is_active:
         rows_html += _row("Nuværende værdi", f"{_da_num(entry['current_value_dkk'])} kr.")
-    rows_html += _row(
-        "Samlet afkast",
-        (
-            f"{_da_num(entry['total_return_dkk'], signed=True)} kr. "
-            f"({_da_num(entry['total_return_pct'], signed=True)}%)"
-        ),
-        color=ret_color,
+
+    def _afkast_row(label, dkk, pct):
+        return _row(
+            label,
+            f"{_da_num(dkk, signed=True)} kr. ({_da_num(pct, signed=True)}%)",
+            color="#2e7d32" if dkk >= 0 else "#d32f2f",
+        )
+
+    if is_active:
+        rows_html += _afkast_row(
+            "Urealiseret afkast", entry["unrealized_dkk"], entry["unrealized_pct"]
+        )
+    if entry["realized_dkk"] > 0:
+        rows_html += _afkast_row(
+            "Realiseret afkast", entry["realized_gain_dkk"], entry["realized_pct"]
+        )
+    rows_html += _afkast_row(
+        "Samlet afkast", entry["total_return_dkk"], entry["total_return_pct"]
     )
 
     table_html = f"""
@@ -191,24 +203,16 @@ def render_history(
     # ── Resumé-metrics ──────────────────────────────────────────────────────
     active_count  = sum(1 for x in lifecycle if x["is_active"])
     closed_count  = sum(1 for x in lifecycle if not x["is_active"])
-    realized_gain = sum(
-        x["total_return_dkk"] for x in lifecycle if not x["is_active"]
-    )
-    unrealized    = sum(
-        x["total_return_dkk"] for x in lifecycle if x["is_active"]
-    )
+    realized_gain = sum(x["realized_gain_dkk"] for x in lifecycle)
+    unrealized    = sum(x["unrealized_dkk"] for x in lifecycle)
+    total_gain    = realized_gain + unrealized
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Aktive positioner",  active_count)
     m2.metric("Afsluttede positioner", closed_count)
-    m3.metric(
-        "Realiseret afkast (lukkede)",
-        f"{_da_num(realized_gain, signed=True)} kr.",
-    )
-    m4.metric(
-        "Urealiseret afkast (aktive)",
-        f"{_da_num(unrealized, signed=True)} kr.",
-    )
+    m3.metric("Urealiseret afkast", f"{_da_num(unrealized, signed=True)} kr.")
+    m4.metric("Realiseret afkast",  f"{_da_num(realized_gain, signed=True)} kr.")
+    m5.metric("Samlet afkast",      f"{_da_num(total_gain, signed=True)} kr.")
 
     st.write("---")
 
