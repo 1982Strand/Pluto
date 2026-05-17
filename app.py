@@ -26,6 +26,7 @@ from views.portfolio_overview import render_portfolio_overview
 from views.wallet import render_wallet
 from analytics.portfolio import compute_ticker_lifecycle
 from views.history import render_history
+from views.comparison import render_comparison
 
 # ==========================================================
 # P1: Cached XLSX loader (hurtigere reruns)
@@ -127,7 +128,9 @@ try:
         st.stop()
 
     # --- Tabs ---
-    tab_main, tab_wallet, tab_history = st.tabs(["📈 Portefølje", "👛 Pung", "📜 Historik"])
+    tab_main, tab_wallet, tab_history, tab_compare = st.tabs(
+        ["📈 Portefølje", "👛 Pung", "📜 Historik", "⚖️ Sammenligning"]
+    )
 
     with tab_main:
         render_portfolio_overview(
@@ -147,6 +150,9 @@ try:
             orders_df, prices, _live_quotes_hist, _usd_now, _eur_now, positions_df=positions_df,
         )
         render_history(lifecycle, _usd_now, _eur_now)
+
+    with tab_compare:
+        render_comparison(total_value, cashflows, cashflow_fracs)
 
 except Exception as e:
     st.error(f"Fejl ved behandling af data: {e}")

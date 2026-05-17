@@ -196,23 +196,29 @@ _REGION_MAP = {
 
 
 def fetch_ticker_meta(tickers_tuple):
-    """Returnerer dict[ticker -> {"sector", "asset_class", "country", "region"}]. Cached 24t.
+    """Returnerer dict[ticker -> {"sector", "asset_class", "country", "region", "currency", "name"}]. Cached 24t.
 
     asset_class er én af: "Aktier", "Fonde / ETF'er", "Krypto", "Andet".
     sector er den danske sektor-label (eller "Fonde" / "Krypto" / "Andet").
     country er yfinance's country-streng (fx "United States") eller "Andet".
     region er udledt fra country via _REGION_MAP.
+    currency er handelsvalutaen (fx "USD", "EUR", "DKK") — bruges af sammenligningsfanen.
+    name er firma-/fondsnavnet (fx "Bloom Energy Corporation") eller tom streng.
     """
     out = {}
     for t in tickers_tuple:
         sector = "Andet"
         asset_class = "Andet"
         country = "Andet"
+        currency = "USD"
+        name = ""
         try:
             info = yf.Ticker(t).info or {}
             qt = (info.get("quoteType") or "").upper()
             yf_sector = info.get("sector") or ""
             country_raw = info.get("country") or ""
+            currency = (info.get("currency") or "USD").upper()
+            name = info.get("longName") or info.get("shortName") or ""
             if country_raw:
                 country = country_raw
             if qt in ("ETF", "MUTUALFUND"):
@@ -234,6 +240,8 @@ def fetch_ticker_meta(tickers_tuple):
             "asset_class": asset_class,
             "country": country,
             "region": region,
+            "currency": currency,
+            "name": name,
         }
     return out
     
