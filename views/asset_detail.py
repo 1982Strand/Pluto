@@ -149,6 +149,16 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     sub["DKK_Adj"] = np.where(sub["Side"] == "BUY", sub["Notional, DKK"], -sub["Notional, DKK"])
     qty_total = float(sub["Qty_Adj"].sum())
     cost_dkk = float(sub["DKK_Adj"].sum())
+    # Kostbasis: Plutos 'Amount, DKK' (korrekt ved delvist salg — modsat
+    # sum(BUY)-sum(SELL) der lækker realiseret gevinst ind i kostbasen).
+    if (positions_df is not None
+            and "Ticker" in positions_df.columns
+            and "Amount, DKK" in positions_df.columns):
+        _cb_row = positions_df[positions_df["Ticker"] == ticker]
+        if not _cb_row.empty:
+            _cb = _safe_float(_cb_row.iloc[0]["Amount, DKK"])
+            if _cb is not None:
+                cost_dkk = _cb
     asset_ccy = sub["Asset currency"].iloc[0]
     name = sub["Name"].iloc[0]
     first_buy = sub[sub["Side"] == "BUY"]["TradeDate"].min()

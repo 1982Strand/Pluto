@@ -172,11 +172,21 @@ def compute_holdings_breakdown(orders_df, positions_df, prices, live_quotes,
                 row["Average entry price (asset currency)"]
             )
 
+    # Plutos egen kostbasis i DKK pr. ticker (glidende gennemsnit, historisk FX).
+    # Korrekt for delvist solgte positioner — modsat sum(BUY)-sum(SELL) der
+    # lækker realiseret gevinst ind i kostbasen.
+    cost_dkk_by_ticker = {}
+    if ("Ticker" in positions_df.columns
+            and "Amount, DKK" in positions_df.columns):
+        for _, row in positions_df.iterrows():
+            cost_dkk_by_ticker[row["Ticker"]] = _safe_float(row["Amount, DKK"])
+
     per_sector, per_asset_class = {}, {}
     per_currency, per_region, per_country = {}, {}, {}
     positions = []
     all_holdings = []
     total_v = 0.0
+    total_invested = 0.0
 
     for _, s in active.iterrows():
         t = s["Ticker"]
@@ -229,14 +239,21 @@ def compute_holdings_breakdown(orders_df, positions_df, prices, live_quotes,
         else:
             rate = 1.0
 
+        # Kostbasis: Plutos 'Amount, DKK' (korrekt ved delvist salg).
+        # Fald tilbage til nettopengestrøm hvis positionen mangler i arket.
+        cost_basis = cost_dkk_by_ticker.get(t)
+        if cost_basis is None:
+            cost_basis = float(s["DKK_Adj"])
+
         gak_pluto = avg_entry_by_ticker.get(t)
         if gak_pluto is not None:
             gak_valuta = gak_pluto
         else:
-            gak_valuta = (s["DKK_Adj"] / s["Qty_Adj"]) / rate if rate else 0
+            gak_valuta = (cost_basis / s["Qty_Adj"]) / rate if rate else 0
         vaerdi_dkk = s["Qty_Adj"] * live * rate
-        pos_pct = (vaerdi_dkk - s["DKK_Adj"]) / s["DKK_Adj"] * 100 if s["DKK_Adj"] else 0
+        pos_pct = (vaerdi_dkk - cost_basis) / cost_basis * 100 if cost_basis else 0
         total_v += vaerdi_dkk
+        total_invested += cost_basis
 
         # Periodisk afkast (kr. + %) afhængigt af afkast_periode-vælger
         if afkast_periode == "1D":
@@ -257,10 +274,10 @@ def compute_holdings_breakdown(orders_df, positions_df, prices, live_quotes,
                     pnl_pos_dkk = float(s["Qty_Adj"]) * (live - jan1_close_f) * rate
                     used_jan1 = True
             if not used_jan1:
-                pnl_pos_dkk = vaerdi_dkk - float(s["DKK_Adj"])
+                pnl_pos_dkk = vaerdi_dkk - cost_basis
                 pnl_pos_pct = pos_pct
         else:  # Maks
-            pnl_pos_dkk = vaerdi_dkk - float(s["DKK_Adj"])
+            pnl_pos_dkk = vaerdi_dkk - cost_basis
             pnl_pos_pct = pos_pct
 
         pos_entry = {
@@ -268,8 +285,8 @@ def compute_holdings_breakdown(orders_df, positions_df, prices, live_quotes,
             "name": s["Name"],
             "qty": float(s["Qty_Adj"]),
             "value_dkk": vaerdi_dkk,
-            "invested_dkk": float(s["DKK_Adj"]),
-            "gain_dkk": vaerdi_dkk - float(s["DKK_Adj"]),
+            "invested_dkk": cost_basis,
+            "gain_dkk": vaerdi_dkk - cost_basis,
             "pos_pct": pos_pct,
         }
         all_holdings.append(pos_entry)
@@ -288,14 +305,14 @@ def compute_holdings_breakdown(orders_df, positions_df, prices, live_quotes,
             "d_now": d_now,
             "d_now_pct": d_now_pct,
             "vaerdi_dkk": vaerdi_dkk,
-            "invested_dkk": float(s["DKK_Adj"]),
+            "invested_dkk": cost_basis,
             "pos_pct": pos_pct,
             "pnl_pos_dkk": pnl_pos_dkk,
             "pnl_pos_pct": pnl_pos_pct,
         })
 
         meta = ticker_meta.get(t, {})
-        invested = float(s["DKK_Adj"])
+        invested = cost_basis
         _add_to_bucket(per_sector, meta.get("sector", "Andet"), vaerdi_dkk, invested, pos_entry)
         _add_to_bucket(per_asset_class, meta.get("asset_class", "Andet"), vaerdi_dkk, invested, pos_entry)
         _add_to_bucket(per_currency, ccy, vaerdi_dkk, invested, pos_entry)
@@ -346,7 +363,6 @@ def compute_holdings_breakdown(orders_df, positions_df, prices, live_quotes,
             all_holdings.append(ce)
 
     grand_total = total_v + sum(c["value_dkk"] for c in cash_entries)
-    total_invested = float(active["DKK_Adj"].sum())
 
     return {
         "positions": positions,
