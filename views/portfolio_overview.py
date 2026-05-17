@@ -175,7 +175,7 @@ def render_portfolio_overview(
             if ts.tz is None:
                 ts = ts.tz_localize("UTC")
             ts = ts.tz_convert("Europe/Copenhagen")
-            return ts.strftime("%d. %b %Y %H:%M") if _is_intraday else ts.strftime("%d. %b %Y")
+            return ts.strftime("%d. %b %Y %H:%M %Z") if _is_intraday else ts.strftime("%d. %b %Y")
 
         for _sign, _seg in _segments:
             if len(_seg) < 2:
