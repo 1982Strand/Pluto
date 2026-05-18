@@ -13,18 +13,32 @@ from datetime import time
 
 def render_wallet(cash_df: pd.DataFrame, dkk_tx: pd.DataFrame,
                   usd_tx: pd.DataFrame, eur_tx: pd.DataFrame,
-                  orders_df: pd.DataFrame) -> None:
-    """Renderer Pung-tabben."""
+                  orders_df: pd.DataFrame,
+                  usd_dkk_rate: float, eur_dkk_rate: float) -> None:
+    """Renderer Pung-tabben.
 
-    total_dkk = cash_df[cash_df["Currency"] == "DKK"]["End cash balance"].sum()
-    st.caption("Kontant i alt (rapportperiodens slut)")
-    st.title(f"{_da_num(total_dkk)} kr.")
+    usd_dkk_rate / eur_dkk_rate er de seneste valutakurser — bruges til at
+    omregne USD- og EUR-beholdninger til DKK i totalen."""
 
-    st.subheader("Konti")
-    c1, c2, c3 = st.columns(3)
     dkk_s = cash_df[cash_df["Currency"] == "DKK"]["End cash balance"].sum()
     usd_s = cash_df[cash_df["Currency"] == "USD"]["End cash balance"].sum()
     eur_s = cash_df[cash_df["Currency"] == "EUR"]["End cash balance"].sum()
+    # Total beholdning i DKK: DKK + USD/EUR omregnet til seneste kurser.
+    total_dkk = dkk_s + usd_s * usd_dkk_rate + eur_s * eur_dkk_rate
+
+    _top_l, _top_r1, _top_r2 = st.columns([2, 1, 1])
+    with _top_l:
+        st.caption("Kontant i alt (omregnet til DKK)")
+        st.title(f"{_da_num(total_dkk)} kr.")
+    with _top_r1:
+        st.metric("USD-kurs", f"{_da_num(usd_dkk_rate, decimals=4)} kr.",
+                  help="Seneste valutakurs — 1 USD i DKK.")
+    with _top_r2:
+        st.metric("EUR-kurs", f"{_da_num(eur_dkk_rate, decimals=4)} kr.",
+                  help="Seneste valutakurs — 1 EUR i DKK.")
+
+    st.subheader("Konti")
+    c1, c2, c3 = st.columns(3)
     c1.metric("Danske Kroner", format_currency(dkk_s, "DKK"))
     c2.metric("US Dollar",     format_currency(usd_s, "USD"))
     c3.metric("Euro",          format_currency(eur_s, "EUR"))

@@ -1,4 +1,5 @@
 import base64
+import datetime
 import numpy as np
 from utils.formatting import _da_num, format_big_number
 
@@ -315,3 +316,241 @@ def _make_performance_bars_html(rows):
         )
     out.append("</div>")
     return "".join(out)
+
+
+# Danske rec-labels — bemærk: yfinance's kategori 'sell' svarer til Yahoos
+# UI-label "Underperform", og 'strongSell' til "Sell" (samme som Yahoo).
+_REC_LABELS = {
+    "strongBuy": "Stærkt køb",
+    "buy": "Køb",
+    "hold": "Hold",
+    "sell": "Underpræstation",
+    "strongSell": "Sælg",
+}
+_REC_COLORS = {
+    "strongBuy": "#1b5e20",
+    "buy": "#66bb6a",
+    "hold": "#ffc107",
+    "sell": "#ef6c00",
+    "strongSell": "#d32f2f",
+}
+
+
+def _make_analyst_price_target_html(low, avg, high, current,
+                                    currency_symbol="$", analyst_count=0,
+                                    recommendation_key=""):
+    """Vandret analytiker-kursmål-bar (Yahoo Finance-stil).
+
+    Track fra low til high; en blå 'Gennemsnit'-callout over baren, en
+    mørk 'Aktuel'-callout under baren, og et blåt segment mellem de to
+    markører. Returnerer tom streng hvis kritiske tal mangler eller
+    low >= high (så kalderen kan skjule blokken)."""
+    if low is None or avg is None or high is None or current is None:
+        return ""
+    if low >= high:
+        return ""
+
+    span = high - low
+
+    def _pos(v):
+        return max(0.0, min(100.0, (v - low) / span * 100))
+
+    def _clamp(p):
+        return max(0.0, min(p - 7.0, 82.0))
+
+    pos_cur = _pos(current)
+    pos_avg = _pos(avg)
+    seg_left = min(pos_cur, pos_avg)
+    seg_width = max(abs(pos_avg - pos_cur), 0.6)
+
+    rec_key = (recommendation_key or "").strip().lower().replace("_", "")
+    rec_label = {
+        "strongbuy": "Stærkt køb", "buy": "Køb", "hold": "Hold",
+        "underperform": "Underpræstation", "sell": "Sælg",
+        "strongsell": "Stærkt salg",
+    }.get(rec_key, "")
+
+    avg_callout = _callout_with_pointer(
+        _clamp(pos_avg), pos_avg,
+        f"{currency_symbol}{_da_num(avg)}"
+        f"<span style='font-weight:400; font-size:10px; "
+        f"display:block;'>Gennemsnit</span>",
+        "#1976d2", box_top=0, tri_top=38, point_down=True,
+    )
+    cur_callout = _callout_with_pointer(
+        _clamp(pos_cur), pos_cur,
+        f"{currency_symbol}{_da_num(current)}"
+        f"<span style='font-weight:400; font-size:10px; "
+        f"display:block;'>Aktuel</span>",
+        "#333333", box_top=59, tri_top=53, point_down=False,
+    )
+
+    caption_bits = []
+    if analyst_count:
+        caption_bits.append(f"{analyst_count} analytikere")
+    if rec_label:
+        caption_bits.append(rec_label)
+    caption = "  ·  ".join(caption_bits)
+
+    # Linje under baren: gennemsnitligt kursmål + afstand til aktuel kurs.
+    if current and current > 0:
+        _upside = (avg - current) / current * 100
+        _up_color = "#2e7d32" if _upside >= 0 else "#d32f2f"
+        avg_line = (
+            "<div style='font-size:15px; color:#222; margin-top:12px; "
+            "text-align:center; font-weight:600;'>"
+            f"Gns. kursmål: <strong>{currency_symbol}{_da_num(avg)}</strong> "
+            f"<span style='color:{_up_color}; font-weight:700;'>"
+            f"({_da_num(_upside, signed=True)}%)</span>"
+            "</div>"
+        )
+    else:
+        avg_line = ""
+
+    return (
+        "<div style='width:100%; padding:14px 0 8px;'>"
+        "  <div style='font-size:13px; font-weight:700; color:#888; "
+        "              letter-spacing:0.5px;'>ANALYTIKERNES KURSMÅL</div>"
+        "  <div style='position:relative; height:104px; margin-top:6px;'>"
+        "    <div style='position:absolute; top:44px; left:0; width:100%; "
+        "                height:8px; background:#d6e4f0; "
+        "                border-radius:4px;'></div>"
+        f"    <div style='position:absolute; top:44px; left:{seg_left:.1f}%; "
+        f"                width:{seg_width:.1f}%; height:8px; "
+        f"                background:#1976d2; opacity:0.4; "
+        f"                border-radius:4px;'></div>"
+        f"    <div style='position:absolute; top:48px; left:{pos_avg:.1f}%; "
+        f"                transform:translate(-50%,-50%); width:13px; "
+        f"                height:13px; border-radius:50%; background:#fff; "
+        f"                border:2.5px solid #1976d2;'></div>"
+        f"    <div style='position:absolute; top:48px; left:{pos_cur:.1f}%; "
+        f"                transform:translate(-50%,-50%); width:12px; "
+        f"                height:12px; border-radius:50%; "
+        f"                background:#333;'></div>"
+        f"    {avg_callout}"
+        f"    {cur_callout}"
+        "  </div>"
+        "  <div style='display:flex; justify-content:space-between; "
+        "              font-size:12px; color:#444;'>"
+        f"    <span>{currency_symbol}{_da_num(low)}</span>"
+        f"    <span style='color:#888; font-size:11px;'>{caption}</span>"
+        f"    <span>{currency_symbol}{_da_num(high)}</span>"
+        "  </div>"
+        f"  {avg_line}"
+        "</div>"
+    )
+
+
+def _make_analyst_rec_bars_html(rec_df, max_months=4):
+    """Stablet søjlediagram over analytiker-anbefalinger pr. måned
+    (Yahoo Finance-stil).
+
+    rec_df: DataFrame fra fetch_analyst_recommendations med kolonnerne
+    period, strongBuy, buy, hold, sell, strongSell. Viser de seneste
+    max_months perioder med ældste måned til venstre. Returnerer tom
+    streng hvis data mangler eller skemaet er uventet."""
+    cats = ["strongBuy", "buy", "hold", "sell", "strongSell"]
+    if rec_df is None or getattr(rec_df, "empty", True):
+        return ""
+    if not all(c in rec_df.columns for c in cats + ["period"]):
+        return ""
+
+    da_months = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun",
+                 "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"]
+    cur_month = datetime.date.today().month  # 1-12
+
+    def _offset(period_str):
+        try:
+            return int(str(period_str).strip().rstrip("m") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _count(v):
+        try:
+            return int(v) if v == v else 0  # v != v er True for NaN
+        except (TypeError, ValueError):
+            return 0
+
+    # yfinance er ikke garanteret sorteret; sortér på period-offset så
+    # ældste måned havner til venstre uanset kildens rækkefølge.
+    recs = sorted(
+        ((_offset(r.get("period")), r) for _, r in rec_df.iterrows()),
+        key=lambda x: x[0],
+    )[-max_months:]
+    if not recs:
+        return ""
+
+    bars = []
+    for offset, row in recs:
+        counts = {c: _count(row.get(c)) for c in cats}
+        total = sum(counts.values())
+        layers = []
+        # column-reverse: første div nederst → strongSell i bunden,
+        # strongBuy i toppen (matcher Yahoos stabling).
+        for c in ["strongSell", "sell", "hold", "buy", "strongBuy"]:
+            if counts[c] <= 0 or total <= 0:
+                continue
+            h = counts[c] / total * 100
+            bg = _REC_COLORS[c]
+            lbl = _REC_LABELS[c]
+            # Antallet vises kun hvis segmentet er højt nok til at rumme det.
+            txt = str(counts[c]) if h >= 12 else ""
+            txt_color = "#333333" if c == "hold" else "#ffffff"
+            layers.append(
+                f"<div style='width:100%; height:{h:.2f}%; background:{bg}; "
+                f"display:flex; align-items:center; justify-content:center; "
+                f"color:{txt_color}; font-size:11px; font-weight:600;' "
+                f"title='{lbl}: {counts[c]}'>{txt}</div>"
+            )
+        bar_inner = "".join(layers) if layers else (
+            "<div style='width:100%; height:100%; "
+            "background:#eeeeee;'></div>"
+        )
+        month = da_months[(cur_month - 1 + offset) % 12]
+        bars.append(
+            "<div style='display:flex; flex-direction:column; "
+            "            align-items:center; flex:1;'>"
+            f"  <span style='font-size:11px; color:#555; "
+            f"               margin-bottom:4px;'>{total}</span>"
+            "  <div style='width:100%; max-width:46px; height:120px; "
+            "              display:flex; flex-direction:column-reverse; "
+            "              border-radius:3px; overflow:hidden; "
+            f"              background:#f0f0f0;'>{bar_inner}</div>"
+            f"  <span style='font-size:11px; color:#666; "
+            f"               margin-top:4px;'>{month}</span>"
+            "</div>"
+        )
+
+    # Procentfordeling for seneste måned (recs er sorteret ældste→nyeste).
+    _, _latest_row = recs[-1]
+    _latest_counts = {c: _count(_latest_row.get(c)) for c in cats}
+    _latest_total = sum(_latest_counts.values())
+
+    def _legend_pct(c):
+        if _latest_total <= 0:
+            return ""
+        pct = _latest_counts[c] / _latest_total * 100
+        return f" ({_da_num(pct, decimals=0)}%)"
+
+    legend = "".join(
+        "<div style='display:flex; align-items:center; gap:5px; "
+        "            font-size:11px; color:#444; white-space:nowrap;'>"
+        f"  <div style='width:10px; height:10px; border-radius:2px; "
+        f"              background:{_REC_COLORS[c]};'></div>"
+        f"  {_REC_LABELS[c]}{_legend_pct(c)}</div>"
+        for c in cats
+    )
+
+    return (
+        "<div style='width:100%; padding:14px 0 8px;'>"
+        "  <div style='font-size:13px; font-weight:700; color:#888; "
+        "              letter-spacing:0.5px; "
+        "              padding-bottom:8px;'>ANALYTIKERNES ANBEFALINGER</div>"
+        "  <div style='display:flex; align-items:flex-end; gap:14px;'>"
+        "    <div style='flex:1; display:flex; align-items:flex-end; "
+        f"                gap:10px;'>{''.join(bars)}</div>"
+        "    <div style='display:flex; flex-direction:column; "
+        f"                gap:5px;'>{legend}</div>"
+        "  </div>"
+        "</div>"
+    )

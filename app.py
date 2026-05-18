@@ -140,7 +140,9 @@ try:
         )
 
     with tab_wallet:
-        render_wallet(cash_df, dkk_tx, usd_tx, eur_tx, orders_df)
+        _usd_w = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
+        _eur_w = _live_fx.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
+        render_wallet(cash_df, dkk_tx, usd_tx, eur_tx, orders_df, _usd_w, _eur_w)
         
     with tab_history:
         _usd_now = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)

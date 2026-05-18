@@ -1,0 +1,258 @@
+{
+  "run_at_et": "2026-05-17 23:45:45 ET",
+  "run_at_cph": "2026-05-18 05:46:02 CEST",
+  "tickers": [
+    "AAPL",
+    "NVDA",
+    "MSFT",
+    "TSLA",
+    "SPY",
+    "AMZN",
+    "SNDK"
+  ],
+  "results": {
+    "Test 1: yfinance history(prepost=True)": {
+      "AAPL": {
+        "ok": true,
+        "rows": 4791,
+        "overnight_rows": 0,
+        "first": "2026-05-11 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "NVDA": {
+        "ok": true,
+        "rows": 4800,
+        "overnight_rows": 0,
+        "first": "2026-05-11 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "MSFT": {
+        "ok": true,
+        "rows": 4797,
+        "overnight_rows": 0,
+        "first": "2026-05-11 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "TSLA": {
+        "ok": true,
+        "rows": 4800,
+        "overnight_rows": 0,
+        "first": "2026-05-11 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "SPY": {
+        "ok": true,
+        "rows": 4725,
+        "overnight_rows": 0,
+        "first": "2026-05-11 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "AMZN": {
+        "ok": true,
+        "rows": 4792,
+        "overnight_rows": 0,
+        "first": "2026-05-11 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "SNDK": {
+        "ok": true,
+        "rows": 4800,
+        "overnight_rows": 0,
+        "first": "2026-05-11 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      }
+    },
+    "Test 2: Yahoo v8/chart direkte (1d)": {
+      "AAPL": {
+        "ok": true,
+        "total_pts": 961,
+        "overnight_pts": 0,
+        "market_state": "UKENDT",
+        "current_price": 300.23,
+        "first": "2026-05-15 04:00:00 ET",
+        "last": "2026-05-15 19:59:44 ET"
+      },
+      "NVDA": {
+        "ok": true,
+        "total_pts": 961,
+        "overnight_pts": 0,
+        "market_state": "UKENDT",
+        "current_price": 225.32,
+        "first": "2026-05-15 04:00:00 ET",
+        "last": "2026-05-15 19:59:58 ET"
+      },
+      "MSFT": {
+        "ok": true,
+        "total_pts": 960,
+        "overnight_pts": 0,
+        "market_state": "UKENDT",
+        "current_price": 421.92,
+        "first": "2026-05-15 04:00:00 ET",
+        "last": "2026-05-15 19:59:55 ET"
+      },
+      "TSLA": {
+        "ok": true,
+        "total_pts": 961,
+        "overnight_pts": 0,
+        "market_state": "UKENDT",
+        "current_price": 422.24,
+        "first": "2026-05-15 04:00:00 ET",
+        "last": "2026-05-15 19:59:59 ET"
+      },
+      "SPY": {
+        "ok": true,
+        "total_pts": 946,
+        "overnight_pts": 0,
+        "market_state": "UKENDT",
+        "current_price": 739.17,
+        "first": "2026-05-15 04:00:00 ET",
+        "last": "2026-05-15 19:59:59 ET"
+      },
+      "AMZN": {
+        "ok": true,
+        "total_pts": 959,
+        "overnight_pts": 0,
+        "market_state": "UKENDT",
+        "current_price": 264.14,
+        "first": "2026-05-15 04:00:00 ET",
+        "last": "2026-05-15 19:59:57 ET"
+      },
+      "SNDK": {
+        "ok": true,
+        "total_pts": 961,
+        "overnight_pts": 0,
+        "market_state": "UKENDT",
+        "current_price": 1407.61,
+        "first": "2026-05-15 04:00:00 ET",
+        "last": "2026-05-15 19:59:54 ET"
+      }
+    },
+    "Test 3: Yahoo v7/quote metadata": {},
+    "Test 4: yfinance fast_info": {
+      "AAPL": {
+        "ok": true,
+        "fields": {
+          "last_price": 300.230011,
+          "open": 297.899994,
+          "previous_close": 297.83
+        }
+      },
+      "NVDA": {
+        "ok": true,
+        "fields": {
+          "last_price": 225.320007,
+          "open": 229.759995,
+          "previous_close": 237.8674
+        }
+      },
+      "MSFT": {
+        "ok": true,
+        "fields": {
+          "last_price": 421.920013,
+          "open": 414.269989,
+          "previous_close": 408.1
+        }
+      },
+      "TSLA": {
+        "ok": true,
+        "fields": {
+          "last_price": 422.23999,
+          "open": 433.980011,
+          "previous_close": 442.3997
+        }
+      },
+      "SPY": {
+        "ok": true,
+        "fields": {
+          "last_price": 739.169983,
+          "open": 741.789978,
+          "previous_close": 747.68
+        }
+      },
+      "AMZN": {
+        "ok": true,
+        "fields": {
+          "last_price": 264.140015,
+          "open": 262.5,
+          "previous_close": 266.4848
+        }
+      },
+      "SNDK": {
+        "ok": true,
+        "fields": {
+          "last_price": 1407.609985,
+          "open": 1321.0,
+          "previous_close": 1370.0
+        }
+      }
+    },
+    "Test 5: yfinance download() multi": {
+      "AAPL": {
+        "ok": true,
+        "rows": 1916,
+        "overnight_rows": 0,
+        "first": "2026-05-14 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "NVDA": {
+        "ok": true,
+        "rows": 1920,
+        "overnight_rows": 0,
+        "first": "2026-05-14 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "MSFT": {
+        "ok": true,
+        "rows": 1918,
+        "overnight_rows": 0,
+        "first": "2026-05-14 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "TSLA": {
+        "ok": true,
+        "rows": 1920,
+        "overnight_rows": 0,
+        "first": "2026-05-14 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "SPY": {
+        "ok": true,
+        "rows": 1890,
+        "overnight_rows": 0,
+        "first": "2026-05-14 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "AMZN": {
+        "ok": true,
+        "rows": 1917,
+        "overnight_rows": 0,
+        "first": "2026-05-14 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      },
+      "SNDK": {
+        "ok": true,
+        "rows": 1920,
+        "overnight_rows": 0,
+        "first": "2026-05-14 04:00:00 ET",
+        "last": "2026-05-15 19:59:00 ET"
+      }
+    },
+    "Test 6: Yahoo v8/chart (5d historik)": {
+      "AAPL": {
+        "ok": true,
+        "total_pts": 4792,
+        "overnight_pts": 0
+      },
+      "NVDA": {
+        "ok": true,
+        "total_pts": 4801,
+        "overnight_pts": 0
+      },
+      "MSFT": {
+        "ok": true,
+        "total_pts": 4798,
+        "overnight_pts": 0
+      }
+    }
+  }
+}

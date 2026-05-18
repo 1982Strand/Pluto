@@ -13,10 +13,11 @@ from utils.formatting import (
 from utils.svg_charts import (
     _make_sparkline_data_url, _make_volume_bar_html,
     _make_range_bar_html, _make_performance_bars_html,
+    _make_analyst_price_target_html, _make_analyst_rec_bars_html,
 )
 from data.cached import (
     fetch_live_quotes, fetch_live_fx_rates, fetch_ticker_quote_info,
-    fetch_ticker_meta, fetch_performance,
+    fetch_ticker_meta, fetch_performance, fetch_analyst_recommendations,
 )
 from data.market_status import get_market_status_for_currency
 from analytics.portfolio import slice_period, cumulative_return_series
@@ -176,6 +177,7 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
     quote = all_quotes.get(ticker, {})
     meta = fetch_ticker_meta((ticker,)).get(ticker, {})
     info = fetch_ticker_quote_info(ticker)
+    analyst_rec = fetch_analyst_recommendations(ticker)
     live_fx = fetch_live_fx_rates()
     usd_dkk_now = live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
     eur_dkk_now = live_fx.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
@@ -882,6 +884,51 @@ def render_asset_detail(ticker, orders_df, positions_df, cash_df, prices,
             unsafe_allow_html=True,
         )
     st.write("---")
+
+    # =====================================================================
+    # SEKTION 4b: ANALYTIKER-DATA
+    # =====================================================================
+    # Skjules helt for aktiver uden analytikerdækning (ETF'er, krypto,
+    # mange ikke-US-tickers) — bedre UX end en halvtom sektion.
+    _has_targets = bool(
+        info.get("target_low_price")
+        and info.get("target_mean_price")
+        and info.get("target_high_price")
+        and live
+    )
+    _has_rec = not analyst_rec.empty
+
+    if _has_targets or _has_rec:
+        st.subheader("Analytikere")
+        ana_left, ana_right = st.columns(2)
+
+        with ana_left:
+            if _has_targets:
+                st.markdown(
+                    _flatten_html(_make_analyst_price_target_html(
+                        low=info["target_low_price"],
+                        avg=info["target_mean_price"],
+                        high=info["target_high_price"],
+                        current=live,
+                        currency_symbol=ccy_sym,
+                        analyst_count=info.get("number_of_analyst_opinions", 0),
+                        recommendation_key=info.get("recommendation_key", ""),
+                    )),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption("Ingen kursmål tilgængelige.")
+
+        with ana_right:
+            if _has_rec:
+                st.markdown(
+                    _flatten_html(_make_analyst_rec_bars_html(analyst_rec)),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption("Ingen anbefalingshistorik tilgængelig.")
+
+        st.write("---")
 
     # =====================================================================
     # SEKTION 5: MIN POSITION

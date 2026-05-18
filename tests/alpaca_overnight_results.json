@@ -1,0 +1,309 @@
+{
+  "run_at_et": "2026-05-18 00:00:49 ET",
+  "results": {
+    "Test 0: Konto": {
+      "plan": "ukendt",
+      "status": "ACTIVE"
+    },
+    "Test 1: Latest Quote": {
+      "AAPL": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:00:02 ET",
+          "is_overnight": false,
+          "bid": 283.01,
+          "ask": 0,
+          "conditions": [
+            "R"
+          ]
+        },
+        "sip": {
+          "ok": false,
+          "error": "403 forbidden"
+        },
+        "boats": {
+          "ok": false,
+          "error": "403 forbidden"
+        }
+      },
+      "NVDA": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:03:42 ET",
+          "is_overnight": false,
+          "bid": 198.01,
+          "ask": 228.2,
+          "conditions": [
+            "R"
+          ]
+        },
+        "sip": {
+          "ok": false,
+          "error": "403 forbidden"
+        },
+        "boats": {
+          "ok": false,
+          "error": "403 forbidden"
+        }
+      },
+      "MSFT": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:00:02 ET",
+          "is_overnight": false,
+          "bid": 402.44,
+          "ask": 0,
+          "conditions": [
+            "R"
+          ]
+        },
+        "sip": {
+          "ok": false,
+          "error": "403 forbidden"
+        },
+        "boats": {
+          "ok": false,
+          "error": "403 forbidden"
+        }
+      },
+      "TSLA": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:00:03 ET",
+          "is_overnight": false,
+          "bid": 404.03,
+          "ask": 0,
+          "conditions": [
+            "R"
+          ]
+        },
+        "sip": {
+          "ok": false,
+          "error": "403 forbidden"
+        },
+        "boats": {
+          "ok": false,
+          "error": "403 forbidden"
+        }
+      }
+    },
+    "Test 2: Bars overnight": {
+      "AAPL": {
+        "iex": {
+          "ok": true,
+          "bars": 0
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "NVDA": {
+        "iex": {
+          "ok": true,
+          "bars": 0
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "MSFT": {
+        "iex": {
+          "ok": true,
+          "bars": 0
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "TSLA": {
+        "iex": {
+          "ok": true,
+          "bars": 0
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      }
+    },
+    "Test 3: Latest Bar": {
+      "AAPL": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:18:00 ET",
+          "is_overnight": false,
+          "close": 300,
+          "volume": 694
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "NVDA": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:43:00 ET",
+          "is_overnight": false,
+          "close": 225.08,
+          "volume": 100
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "MSFT": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:16:00 ET",
+          "is_overnight": false,
+          "close": 420.8,
+          "volume": 2881
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      }
+    },
+    "Test 4: Latest Trade": {
+      "AAPL": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:18:35 ET",
+          "is_overnight": false,
+          "price": 300,
+          "exchange": "V"
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "NVDA": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:43:32 ET",
+          "is_overnight": false,
+          "price": 225.08,
+          "exchange": "V"
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "MSFT": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 16:16:59 ET",
+          "is_overnight": false,
+          "price": 420.8,
+          "exchange": "V"
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      },
+      "TSLA": {
+        "iex": {
+          "ok": true,
+          "timestamp": "2026-05-15 15:59:59 ET",
+          "is_overnight": false,
+          "price": 422.27,
+          "exchange": "V"
+        },
+        "sip": {
+          "ok": false,
+          "error": "HTTP 403"
+        },
+        "boats": {
+          "ok": false,
+          "error": "HTTP 403"
+        }
+      }
+    },
+    "Test 5: Snapshots": {
+      "AAPL_iex": {
+        "ok": true,
+        "trade_ts": "2026-05-15 16:18:35 ET",
+        "bar_ts": "2026-05-15 16:18:00 ET",
+        "price": 300,
+        "is_overnight": false
+      },
+      "NVDA_iex": {
+        "ok": true,
+        "trade_ts": "2026-05-15 16:43:32 ET",
+        "bar_ts": "2026-05-15 16:43:00 ET",
+        "price": 225.08,
+        "is_overnight": false
+      },
+      "MSFT_iex": {
+        "ok": true,
+        "trade_ts": "2026-05-15 16:16:59 ET",
+        "bar_ts": "2026-05-15 16:16:00 ET",
+        "price": 420.8,
+        "is_overnight": false
+      },
+      "TSLA_iex": {
+        "ok": true,
+        "trade_ts": "2026-05-15 15:59:59 ET",
+        "bar_ts": "2026-05-15 15:59:00 ET",
+        "price": 422.27,
+        "is_overnight": false
+      },
+      "SPY_iex": {
+        "ok": true,
+        "trade_ts": "2026-05-15 16:40:57 ET",
+        "bar_ts": "2026-05-15 16:40:00 ET",
+        "price": 737.71,
+        "is_overnight": false
+      }
+    }
+  }
+}

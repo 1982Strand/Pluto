@@ -251,7 +251,9 @@ def fetch_ticker_quote_info(ticker):
     Cached i 1 time. Returnerer dict med nøgler:
     volume, average_volume, day_low, day_high, open, fifty_two_week_low,
     fifty_two_week_high, market_cap, trailing_pe, trailing_eps,
-    target_mean_price, beta, exchange, isin, long_name, website,
+    target_mean_price, target_high_price, target_low_price,
+    target_median_price, recommendation_key, number_of_analyst_opinions,
+    beta, exchange, isin, long_name, website,
     regular_market_time, post_market_time, pre_market_time.
     """
     out = {
@@ -259,7 +261,9 @@ def fetch_ticker_quote_info(ticker):
         "day_low": None, "day_high": None, "open": None,
         "fifty_two_week_low": None, "fifty_two_week_high": None,
         "market_cap": None, "trailing_pe": None, "trailing_eps": None,
-        "target_mean_price": None,
+        "target_mean_price": None, "target_high_price": None,
+        "target_low_price": None, "target_median_price": None,
+        "recommendation_key": "", "number_of_analyst_opinions": 0,
         "beta": None, "exchange": None, "isin": None,
         "long_name": None, "website": None,
         "regular_market_time": None, "post_market_time": None,
@@ -282,6 +286,11 @@ def fetch_ticker_quote_info(ticker):
     out["trailing_pe"] = _safe_float(info.get("trailingPE"))
     out["trailing_eps"] = _safe_float(info.get("trailingEps"))
     out["target_mean_price"] = _safe_float(info.get("targetMeanPrice"))
+    out["target_high_price"] = _safe_float(info.get("targetHighPrice"))
+    out["target_low_price"] = _safe_float(info.get("targetLowPrice"))
+    out["target_median_price"] = _safe_float(info.get("targetMedianPrice"))
+    out["recommendation_key"] = info.get("recommendationKey") or ""
+    out["number_of_analyst_opinions"] = int(info.get("numberOfAnalystOpinions") or 0)
     out["beta"] = _safe_float(info.get("beta"))
     out["exchange"] = info.get("fullExchangeName") or info.get("exchange") or None
     out["isin"] = info.get("isin") or None
@@ -469,6 +478,39 @@ def fetch_performance(ticker):
     out["ytd"] = _pct_before(pd.Timestamp(year=today.year, month=1, day=1) - pd.Timedelta(days=1))
     out["1y"] = _pct_before(today - pd.DateOffset(years=1))
     return out
+
+
+def fetch_analyst_recommendations(ticker):
+    """Henter analytiker-anbefalinger pr. måned fra yfinance.
+
+    Returnerer en DataFrame med kolonnerne
+        period | strongBuy | buy | hold | sell | strongSell
+    hvor period er '0m' (indeværende måned), '-1m', '-2m', '-3m'.
+
+    Returnerer en tom DataFrame ved fejl, manglende data, eller hvis den
+    installerede yfinance-version leverer et ældre format uden de
+    forventede kategori-kolonner — så kalderen aldrig får et uventet skema.
+    """
+    cats = ["strongBuy", "buy", "hold", "sell", "strongSell"]
+    try:
+        rec = getattr(yf.Ticker(ticker), "recommendations", None)
+    except Exception:
+        return pd.DataFrame()
+    if rec is None or getattr(rec, "empty", True):
+        return pd.DataFrame()
+    try:
+        rec = rec.copy()
+        rec.columns = [str(c).strip() for c in rec.columns]
+        # 'period' er en kolonne i nyere yfinance, men kan ligge i indekset
+        # i andre versioner — håndtér begge.
+        if "period" not in rec.columns:
+            rec = rec.reset_index()
+            rec.columns = [str(c).strip() for c in rec.columns]
+        if "period" not in rec.columns or not set(cats).issubset(rec.columns):
+            return pd.DataFrame()
+        return rec[["period"] + cats].reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
 
 
 # ==========================================================

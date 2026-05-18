@@ -1,0 +1,97 @@
+{
+  "run_at_et": "2026-05-18 00:13:27 ET",
+  "results": {
+    "Metode 1: __NEXT_DATA__": {
+      "AAPL": {
+        "ok": false
+      },
+      "NVDA": {
+        "ok": false
+      },
+      "MSFT": {
+        "ok": false
+      },
+      "TSLA": {
+        "ok": false
+      },
+      "SPY": {
+        "ok": false
+      },
+      "AMZN": {
+        "ok": false
+      },
+      "SNDK": {
+        "ok": false
+      }
+    },
+    "Metode 2: Playwright": {
+      "AAPL": {
+        "ok": true,
+        "regularPrice": null,
+        "postPrice": null,
+        "marketState": null,
+        "title": "Dine privatlivsvalg"
+      },
+      "NVDA": {
+        "ok": true,
+        "regularPrice": null,
+        "postPrice": null,
+        "marketState": null,
+        "title": "Dine privatlivsvalg"
+      },
+      "MSFT": {
+        "ok": true,
+        "regularPrice": null,
+        "postPrice": null,
+        "marketState": null,
+        "title": "Dine privatlivsvalg"
+      },
+      "TSLA": {
+        "ok": true,
+        "regularPrice": null,
+        "postPrice": null,
+        "marketState": null,
+        "title": "Dine privatlivsvalg"
+      },
+      "SPY": {
+        "ok": true,
+        "regularPrice": null,
+        "postPrice": null,
+        "marketState": null,
+        "title": "Dine privatlivsvalg"
+      },
+      "AMZN": {
+        "ok": true,
+        "regularPrice": null,
+        "postPrice": null,
+        "marketState": null,
+        "title": "Dine privatlivsvalg"
+      },
+      "SNDK": {
+        "ok": true,
+        "regularPrice": null,
+        "postPrice": null,
+        "marketState": null,
+        "title": "Dine privatlivsvalg"
+      }
+    },
+    "Metode 3: v11 API": {
+      "AAPL": {
+        "ok": false,
+        "error": "HTTP 404"
+      },
+      "NVDA": {
+        "ok": false,
+        "error": "HTTP 404"
+      },
+      "MSFT": {
+        "ok": false,
+        "error": "HTTP 404"
+      },
+      "TSLA": {
+        "ok": false,
+        "error": "HTTP 404"
+      }
+    }
+  }
+}
