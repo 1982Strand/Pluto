@@ -72,11 +72,21 @@ def compute_portfolio_value_series_intraday(orders, dkk_tx, usd_tx, eur_tx, peri
             return pd.Series(dtype=float), pd.Series(dtype=float)
         idx_et = idx.tz_convert("America/New_York")
         et_dates = idx_et.normalize()
-        # Filtrér til hverdage (mandag-fredag) — US-børser handler ikke weekend
-        weekday_et_dates = et_dates[et_dates.weekday < 5]
-        if len(weekday_et_dates) == 0:
+        # Vælg seneste ET-dato der har AKTIE-data — ikke bare valuta-data.
+        # Valuta (USDDKK/EURDKK) handler døgnet rundt, så uden dette ville 1D
+        # i overnight-vinduet (efter midnat ET, før pre-market kl. 04:00 ET)
+        # filtrere til en ny dato uden aktie-bars og kollapse aktieværdien til
+        # 0. Med dette falder 1D naturligt tilbage til seneste rigtige session.
+        fx_cols = {"USDDKK=X", "EURDKK=X"}
+        stock_cols = [c for c in prices_i.columns if c not in fx_cols]
+        if stock_cols:
+            has_stock = prices_i[stock_cols].notna().any(axis=1).to_numpy()
+        else:
+            has_stock = np.ones(len(prices_i), dtype=bool)
+        candidate_dates = et_dates[(et_dates.weekday < 5) & has_stock]
+        if len(candidate_dates) == 0:
             return pd.Series(dtype=float), pd.Series(dtype=float)
-        target_et_date = weekday_et_dates.max()
+        target_et_date = candidate_dates.max()
         mask = et_dates == target_et_date
         prices_i = prices_i.loc[mask]
         if prices_i.empty:

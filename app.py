@@ -78,23 +78,30 @@ try:
         eur_dkk = prices.get("EURDKK=X", pd.Series(7.46, index=date_range)).reindex(date_range, method="ffill").bfill()
         cashflows, cashflow_fracs = compute_deposits_dkk(dkk_tx, usd_tx, eur_tx, usd_dkk, eur_dkk, date_range)
 
+    # --- Live FX-kurser + live kontantværdi i DKK ---
+    # Samme kilde (cash_df) og kurser som Pung-fanen, så kontantbeløbet er
+    # identisk på tværs af faner.
+    _live_fx = fetch_live_fx_rates()
+    _usd_now = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
+    _eur_now = _live_fx.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
+    _cash_live_dkk = (
+        float(cash_df[cash_df["Currency"] == "DKK"]["End cash balance"].sum())
+        + float(cash_df[cash_df["Currency"] == "USD"]["End cash balance"].sum()) * _usd_now
+        + float(cash_df[cash_df["Currency"] == "EUR"]["End cash balance"].sum()) * _eur_now
+    )
+
     # --- Override seneste punkt med live-priser ---
     # Så Total porteføljeværdi, TWR og Aktieværdi alle bruger samme priskilde
-    _live_fx = {}  # Fallback: sikrer _live_fx altid er defineret (bruges i tab_history)
     try:
         _active_pre = active_positions(orders_df)
         if not _active_pre.empty:
             _live_top = fetch_live_quotes(tuple(_active_pre["Ticker"].tolist()))
-            _live_fx = fetch_live_fx_rates()
-            _usd_now = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
-            _eur_now = _live_fx.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
             _live_aktier_dkk = compute_live_stock_value(
                 _active_pre, prices, _live_top, _usd_now, _eur_now
             )
-            _cash_now_dkk = float(cash_value_total.iloc[-1]) if len(cash_value_total) else 0.0
             total_value = total_value.copy()
             stock_value = stock_value.copy()
-            total_value.iloc[-1] = _live_aktier_dkk + _cash_now_dkk
+            total_value.iloc[-1] = _live_aktier_dkk + _cash_live_dkk
             stock_value.iloc[-1] = _live_aktier_dkk
     except Exception:
         # Hvis live-fetch fejler, fall back til daglige slut-værdier
@@ -135,14 +142,12 @@ try:
     with tab_main:
         render_portfolio_overview(
             orders_df, dkk_tx, usd_tx, eur_tx, positions_df, cash_df,
-            prices, total_value, stock_value, cash_value_total,
+            prices, total_value, stock_value, _cash_live_dkk,
             cashflows, cashflow_fracs, usd_dkk, eur_dkk,
         )
 
     with tab_wallet:
-        _usd_w = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)
-        _eur_w = _live_fx.get("EURDKK") or (float(eur_dkk.iloc[-1]) if len(eur_dkk) else 7.46)
-        render_wallet(cash_df, dkk_tx, usd_tx, eur_tx, orders_df, _usd_w, _eur_w)
+        render_wallet(cash_df, dkk_tx, usd_tx, eur_tx, orders_df, _usd_now, _eur_now)
         
     with tab_history:
         _usd_now = _live_fx.get("USDDKK") or (float(usd_dkk.iloc[-1]) if len(usd_dkk) else 6.85)

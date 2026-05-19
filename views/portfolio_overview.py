@@ -42,7 +42,7 @@ def render_portfolio_overview(
     prices: pd.DataFrame,
     total_value: pd.Series,
     stock_value: pd.Series,
-    cash_value_total: pd.Series,
+    cash_live_dkk: float,
     cashflows: pd.Series,
     cashflow_fracs,
     usd_dkk: pd.Series,
@@ -157,25 +157,36 @@ def render_portfolio_overview(
         # Grøn for positive segmenter, rød for negative — én trace pr.
         # kontinuerligt fortegns-segment, så fill="tozeroy" ikke bløder.
         st.write("")
+        # Intraday-data fra yfinance er tz-bevidst; den daglige fallback-serie
+        # er tz-naiv. Plotly renderer tz-bevidste tidsstempler i UTC på aksen,
+        # mens tooltippet viste dansk tid — derfor 2 timers mismatch. Vi
+        # konverterer intraday-x til dansk tid (tz-naiv), så akse og tooltip
+        # viser samme klokkeslæt.
+        _d_idx = pd.DatetimeIndex(d_per)
+        _is_intraday = _d_idx.tz is not None
+        if _is_intraday:
+            d_per_plot = _d_idx.tz_convert("Europe/Copenhagen").tz_localize(None)
+        else:
+            d_per_plot = _d_idx
+
         _segments = split_signed_return_segments(
-            pd.DatetimeIndex(d_per).to_numpy(),
+            d_per_plot.to_numpy(),
             ret_pct_series.values,
             v_per.values,
         )
 
         fig = go.Figure()
-        # Tooltip-tid i dansk tidszone. Intraday-perioder viser dato + klokkeslæt;
-        # daglige perioder viser kun datoen.
-        _is_intraday = period in ("1D", "1U", "1M")
 
         def _fmt_x(x):
-            # Segmenterne blander tz-bevidste tidsstempler (rigtige punkter) og
-            # tz-naive nulpunkter (interpolerede) — håndtér hvert punkt for sig.
+            # x er dansk tid: tz-naiv for intraday, en ren dato for daglige
+            # perioder. For intraday lokaliseres der for at få CEST/CET-mærket.
             ts = pd.Timestamp(x)
+            if not _is_intraday:
+                return ts.strftime("%d. %b %Y")
             if ts.tz is None:
-                ts = ts.tz_localize("UTC")
-            ts = ts.tz_convert("Europe/Copenhagen")
-            return ts.strftime("%d. %b %Y %H:%M %Z") if _is_intraday else ts.strftime("%d. %b %Y")
+                ts = ts.tz_localize("Europe/Copenhagen",
+                                    nonexistent="shift_forward", ambiguous=True)
+            return ts.strftime("%d. %b %Y %H:%M %Z")
 
         for _sign, _seg in _segments:
             if len(_seg) < 2:
@@ -215,14 +226,14 @@ def render_portfolio_overview(
         with st.expander("Vis porteføljeværdi (DKK) over tid"):
             fig2 = go.Figure()
             fig2.add_trace(go.Scatter(
-                x=d_per, y=v_per.values,
+                x=d_per_plot, y=v_per.values,
                 mode="lines", line=dict(color="#1976d2", width=2),
                 name="Porteføljeværdi",
                 hovertemplate="<b>%{x|%d. %b %Y}</b><br>Værdi: %{y:,.2f} DKK<extra></extra>",
             ))
             cum_cf_series = (cf_per.cumsum() - cf_per.iloc[0])
             fig2.add_trace(go.Scatter(
-                x=d_per,
+                x=d_per_plot,
                 y=v_per.iloc[0] + cum_cf_series,
                 mode="lines", line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
                 name="Investeret kapital",
@@ -238,7 +249,7 @@ def render_portfolio_overview(
 
     with col_metrics:
         st.metric("Aktier (DKK)", _da_num(stock_value.iloc[-1]))
-        st.metric("Kontant (DKK)", _da_num(cash_value_total.iloc[-1]))
+        st.metric("Kontant (DKK)", _da_num(cash_live_dkk))
         st.metric("Total nettoindskud", f"{_da_num(total_deposits)} DKK")
         st.metric("Akkum. afkast (Maks)", f"{_da_num(total_value.iloc[-1] - total_deposits)} DKK")
 
@@ -407,7 +418,7 @@ def render_portfolio_overview(
         total_fx_spread_dkk = costs["fx_spread_dkk"]
         total_costs_dkk = costs["total_dkk"]
 
-        _cash_real_now = float(cash_value_total.iloc[-1]) if len(cash_value_total) else 0.0
+        _cash_real_now = cash_live_dkk
         pnl = compute_pnl_summary(
             total_v, total_i, _cash_real_now, total_deposits, total_costs_dkk
         )
