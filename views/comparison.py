@@ -15,6 +15,7 @@ import streamlit as st
 
 from config import PORTFOLIO_START
 from utils.formatting import _da_num
+from data.cached import search_tickers
 from analytics.comparison import (
     compute_portfolio_twr_series, compute_benchmark_series,
     slice_price_to_period, align_to_common_index, rebase_series,
@@ -102,17 +103,12 @@ def _render_portfolio_vs_benchmark(total_value, cashflows, cashflow_fracs):
                 st.warning("Maks. 4 benchmarks ad gangen.")
             st.rerun()
 
-    # --- Eget ticker-søgefelt ---
-    custom = st.text_input("Tilføj benchmark (yfinance-ticker)",
-                           key="bm_custom", placeholder="fx ^GDAXI")
-    if custom:
-        tk = custom.strip().upper()
-        if tk and tk not in st.session_state.cmp_benchmarks:
-            if len(st.session_state.cmp_benchmarks) < 4:
-                st.session_state.cmp_benchmarks.append(tk)
-                st.rerun()
-            else:
-                st.warning("Maks. 4 benchmarks ad gangen.")
+    # --- Søg og tilføj benchmark ---
+    _render_ticker_search(
+        "cmp_benchmarks", 4,
+        "Søg og tilføj benchmark (navn eller ticker)",
+        "fx Tesla, DAX, guld...",
+    )
 
     if st.session_state.cmp_benchmarks:
         st.caption("Valgte benchmarks — klik for at fjerne")
@@ -178,17 +174,12 @@ def _render_asset_vs_asset():
                 st.warning("Maks. 4 aktiver ad gangen.")
             st.rerun()
 
-    # --- Eget ticker-søgefelt ---
-    custom = st.text_input("Tilføj aktiv (yfinance-ticker)",
-                           key="asset_custom", placeholder="fx AAPL")
-    if custom:
-        tk = custom.strip().upper()
-        if tk and tk not in st.session_state.cmp_assets:
-            if len(st.session_state.cmp_assets) < 4:
-                st.session_state.cmp_assets.append(tk)
-                st.rerun()
-            else:
-                st.warning("Maks. 4 aktiver ad gangen.")
+    # --- Søg og tilføj aktiv ---
+    _render_ticker_search(
+        "cmp_assets", 4,
+        "Søg og tilføj aktiv (navn eller ticker)",
+        "fx Tesla, Novo, Compass...",
+    )
 
     # --- Valgte aktiver med fjern-knapper ---
     if st.session_state.cmp_assets:
@@ -337,6 +328,55 @@ def _render_stats_table(stats, mode, highlight=None):
 # ----------------------------------------------------------------------
 # Hjælpere
 # ----------------------------------------------------------------------
+def _add_search_result(state_key, ticker):
+    """on_click-callback: tilføj ticker og ryd søgefeltet. Rydningen SKAL ske
+    i en callback — en widget-nøgle (her tekstfeltet) må ikke ændres efter at
+    widgeten er instantieret i samme kørsel."""
+    selected = st.session_state[state_key]
+    if ticker not in selected:
+        selected.append(ticker)
+    st.session_state[f"{state_key}_search"] = ""
+
+
+def _render_ticker_search(state_key, max_items, label, placeholder):
+    """Søgefelt: skriv et navn eller en ticker → vis træffere som knapper →
+    klik tilføjer den valgte ticker til st.session_state[state_key].
+
+    Erstatter det gamle felt hvor man skulle kende den nøjagtige yfinance-
+    ticker."""
+    query = st.text_input(label, key=f"{state_key}_search",
+                          placeholder=placeholder)
+    q = (query or "").strip()
+    if len(q) < 2:
+        return
+
+    selected = st.session_state[state_key]
+    if len(selected) >= max_items:
+        st.caption(f"Maks. {max_items} valgt — fjern en for at søge flere.")
+        return
+
+    with st.spinner("Søger..."):
+        results = search_tickers(q)
+
+    if not results:
+        st.caption(f"Ingen resultater for '{q}'.")
+        return
+
+    for r in results[:7]:
+        sym = r["symbol"]
+        bits = [r["name"], f"({sym})"]
+        if r["exchange"]:
+            bits.append(f"— {r['exchange']}")
+        already = sym in selected
+        st.button(
+            ("✓ " if already else "") + " ".join(bits),
+            key=f"{state_key}_res_{sym}",
+            use_container_width=True,
+            disabled=already,
+            on_click=_add_search_result, args=(state_key, sym),
+        )
+
+
 def _label_for(ticker):
     """Kort navn til graf/tabel: preset-navn hvis kendt, ellers selve tickeren."""
     return _TICKER_TO_PRESET.get(ticker, ticker)

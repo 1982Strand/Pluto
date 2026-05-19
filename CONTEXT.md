@@ -53,7 +53,7 @@ Regler:
 ### data/ — Datahentning og -håndtering
 | Fil | Ansvar |
 |-----|--------|
-| `data/fetch.py` | **Ren Python, ingen Streamlit.** yfinance-kald: `fetch_price_history`, `fetch_price_history_intraday`, `fetch_live_quotes`, `fetch_live_fx_rates`, `fetch_ticker_meta`, `fetch_ticker_quote_info`, `fetch_intraday_sparklines`, `fetch_asset_history`, `fetch_period_reference_price`, `fetch_performance`, `fetch_analyst_recommendations`, `load_pluto_xlsx_raw`. Ingen dekoratorer. |
+| `data/fetch.py` | **Ren Python, ingen Streamlit.** yfinance-kald: `fetch_price_history`, `fetch_price_history_intraday`, `fetch_live_quotes`, `fetch_live_fx_rates`, `fetch_ticker_meta`, `fetch_ticker_quote_info`, `fetch_intraday_sparklines`, `fetch_asset_history`, `fetch_period_reference_price`, `fetch_performance`, `fetch_analyst_recommendations`, `search_tickers`, `load_pluto_xlsx_raw`. Ingen dekoratorer. |
 | `data/cached.py` | **Eneste sted med `@st.cache_data`.** Importerer alle funktioner fra `data.fetch` og eksponerer cachede versioner med samme navne og TTL-værdier. `load_pluto_xlsx_cached` bor her. Skift framework: ret kun denne fil. |
 | `data/deposits.py` | Gemmer og henter tidspunkter for indbetalinger i `deposit_times.json`. Funktioner: `load_deposit_times`, `save_deposit_times`, `_deposit_key`, `_time_to_frac`. Ingen Streamlit. |
 | `data/market_status.py` | `get_us_market_status`, `get_eu_market_status`, `get_market_status_for_currency` — returnerer (kode, label, emoji, baggrundsfarve). Ingen Streamlit. |
@@ -115,6 +115,7 @@ Detalje-siden åbnes via query parameter `?ticker=XXX`. `app.py` tjekker `st.que
 | `fetch_period_reference_price` | 1 time |
 | `fetch_performance` | 1 time |
 | `fetch_analyst_recommendations` | 1 time |
+| `search_tickers` | 1 time |
 
 **Data-filer der ikke er på GitHub:**
 - `last_statement.xlsx` og `Account_statement.xlsx` — personlige finansdata, i `.gitignore`

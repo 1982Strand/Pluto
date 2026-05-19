@@ -513,6 +513,35 @@ def fetch_analyst_recommendations(ticker):
         return pd.DataFrame()
 
 
+def search_tickers(query):
+    """Søg efter værdipapirer via Yahoo Finances søge-API (yf.Search).
+
+    Returnerer en liste af dicts {symbol, name, exchange, type} ordnet efter
+    Yahoos relevans. Tom liste ved fejl, for kort forespørgsel eller ingen
+    træffere — så kalderen aldrig får et uventet format.
+    """
+    q = (query or "").strip()
+    if len(q) < 2:
+        return []
+    try:
+        quotes = yf.Search(q).quotes
+    except Exception:
+        return []
+    out = []
+    for it in quotes or []:
+        sym = str(it.get("symbol") or "").strip()
+        if not sym:
+            continue
+        name = it.get("longname") or it.get("shortname") or sym
+        out.append({
+            "symbol": sym,
+            "name": str(name).strip(),
+            "exchange": str(it.get("exchDisp") or it.get("exchange") or "").strip(),
+            "type": str(it.get("typeDisp") or it.get("quoteType") or "").strip(),
+        })
+    return out
+
+
 # ==========================================================
 # XLSX loader (ren Python — ingen Streamlit)
 # Cache-wrapperen med @st.cache_data ligger i data/cached.py

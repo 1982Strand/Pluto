@@ -16,6 +16,7 @@ from data.fetch import (
     fetch_period_reference_price as _fetch_period_reference_price,
     fetch_performance as _fetch_performance,
     fetch_analyst_recommendations as _fetch_analyst_recommendations,
+    search_tickers as _search_tickers,
 )
 
 fetch_price_history          = st.cache_data(ttl=1800, show_spinner=False)(_fetch_price_history)
@@ -33,6 +34,7 @@ fetch_asset_history = st.cache_data(ttl=300, show_spinner=False)(_fetch_asset_hi
 fetch_period_reference_price = st.cache_data(ttl=3600, show_spinner=False)(_fetch_period_reference_price)
 fetch_performance = st.cache_data(ttl=3600, show_spinner=False)(_fetch_performance)
 fetch_analyst_recommendations = st.cache_data(ttl=3600, show_spinner=False)(_fetch_analyst_recommendations)
+search_tickers = st.cache_data(ttl=3600, show_spinner=False)(_search_tickers)
 
 from data.fetch import load_pluto_xlsx_raw as _load_xlsx_raw
 
